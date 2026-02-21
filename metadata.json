@@ -1,0 +1,7 @@
+{
+  "name": "Remix: SINAR TANI",
+  "description": "Sistem Informasi dan Manajemen Pertanian Terpadu Kabupaten Kebumen",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
