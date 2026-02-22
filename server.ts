@@ -14,6 +14,7 @@ const db = new Database("sinartani.db");
 
 // Initialize Database
 function initDB() {
+  // Create tables
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,6 +25,8 @@ function initDB() {
       photo TEXT,
       bio TEXT,
       phone TEXT,
+      preferred_crops TEXT,
+      farming_practices TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -116,7 +119,26 @@ function initDB() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id)
     );
+
+    CREATE TABLE IF NOT EXISTS tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      officer_id INTEGER,
+      title TEXT NOT NULL,
+      description TEXT,
+      status TEXT DEFAULT 'Pending',
+      due_date DATE,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(officer_id) REFERENCES users(id)
+    );
   `);
+
+  // Migrate existing users table if needed
+  try {
+    db.exec("ALTER TABLE users ADD COLUMN preferred_crops TEXT");
+  } catch (e) {}
+  try {
+    db.exec("ALTER TABLE users ADD COLUMN farming_practices TEXT");
+  } catch (e) {}
 
   // Create or update default admin and officer
   const admin = db.prepare("SELECT * FROM users WHERE username = ?").get("admin") as any;
@@ -226,6 +248,26 @@ async function startServer() {
       res.json({ success: true });
     } catch (err) {
       res.status(400).json({ error: "Username sudah digunakan" });
+    }
+  });
+
+  // Profile
+  app.patch("/api/profile/:id", (req, res) => {
+    const { id } = req.params;
+    const { fullname, phone, bio, preferred_crops, farming_practices } = req.body;
+    
+    try {
+      db.prepare(`
+        UPDATE users 
+        SET fullname = ?, phone = ?, bio = ?, preferred_crops = ?, farming_practices = ? 
+        WHERE id = ?
+      `).run(fullname, phone, bio, preferred_crops, farming_practices, id);
+      
+      const updatedUser = db.prepare("SELECT id, fullname, username, role, photo, bio, phone, preferred_crops, farming_practices FROM users WHERE id = ?").get(id);
+      res.json(updatedUser);
+    } catch (err) {
+      console.error("Profile update error:", err);
+      res.status(500).json({ error: "Gagal memperbarui profil" });
     }
   });
 
@@ -401,6 +443,58 @@ async function startServer() {
     });
 
     res.json({ success: true });
+  });
+
+  // Tasks
+  app.get("/api/tasks/:officerId", (req, res) => {
+    const tasks = db.prepare("SELECT * FROM tasks WHERE officer_id = ? ORDER BY created_at DESC").all(req.params.officerId);
+    res.json(tasks);
+  });
+
+  app.get("/api/tasks", (req, res) => {
+    const tasks = db.prepare(`
+      SELECT t.*, u.fullname as officer_name 
+      FROM tasks t 
+      JOIN users u ON t.officer_id = u.id 
+      ORDER BY t.created_at DESC
+    `).all();
+    res.json(tasks);
+  });
+
+  app.post("/api/tasks", (req, res) => {
+    const { officer_id, title, description, due_date } = req.body;
+    db.prepare(`
+      INSERT INTO tasks (officer_id, title, description, due_date) 
+      VALUES (?, ?, ?, ?)
+    `).run(officer_id, title, description, due_date);
+    
+    io.emit("notification", {
+      id: Date.now().toString(),
+      title: "Tugas Baru",
+      message: `Anda mendapatkan tugas baru: ${title}`,
+      type: "info",
+      created_at: new Date().toISOString(),
+      read: false,
+      target_user_id: officer_id
+    });
+
+    io.emit("data_updated", { type: "tasks", officer_id });
+    res.json({ success: true });
+  });
+
+  app.patch("/api/tasks/:id", (req, res) => {
+    const { status } = req.body;
+    db.prepare("UPDATE tasks SET status = ? WHERE id = ?").run(status, req.params.id);
+    
+    const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(req.params.id) as any;
+    io.emit("data_updated", { type: "tasks", officer_id: task.officer_id });
+    res.json({ success: true });
+  });
+
+  // Get all officers for task assignment
+  app.get("/api/officers", (req, res) => {
+    const officers = db.prepare("SELECT id, fullname, username FROM users WHERE role = 'petugas' OR role = 'admin'").all();
+    res.json(officers);
   });
 
   // Vite middleware for development

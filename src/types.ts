@@ -6,6 +6,8 @@ export type User = {
   photo?: string;
   bio?: string;
   phone?: string;
+  preferred_crops?: string;
+  farming_practices?: string;
 };
 
 export type Report = {
@@ -56,8 +58,19 @@ export type BantuanProposal = {
   type: string;
   amount: string;
   reason: string;
-  status: 'Menunggu' | 'Disetujui' | 'Ditolak';
+  status: string;
   created_at: string;
+};
+
+export type Task = {
+  id: number;
+  officer_id: number;
+  title: string;
+  description: string;
+  status: 'Pending' | 'Ongoing' | 'Completed';
+  due_date: string;
+  created_at: string;
+  officer_name?: string;
 };
 
 export type Notification = {

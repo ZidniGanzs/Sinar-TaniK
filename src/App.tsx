@@ -26,12 +26,33 @@ import {
   Home as HomeIcon,
   Check,
   Download,
-  Bell
+  Bell,
+  Sparkles,
+  Loader2,
+  ClipboardList,
+  Filter,
+  Navigation,
+  Activity,
+  BookOpen
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { MapContainer, TileLayer, Marker, Popup, CircleMarker } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, CircleMarker, useMap } from 'react-leaflet';
+import L from 'leaflet';
 import { io } from 'socket.io-client';
-import { User, Report, Product, Farm, BantuanProposal, Notification } from './types';
+import { GoogleGenAI, Type } from "@google/genai";
+import { 
+  PieChart, 
+  Pie, 
+  Cell, 
+  ResponsiveContainer, 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  Legend as RechartsLegend 
+} from 'recharts';
+import { User, Report, Product, Farm, BantuanProposal, Notification, Task } from './types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import 'leaflet/dist/leaflet.css';
@@ -278,6 +299,7 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [farms, setFarms] = useState<Farm[]>([]);
   const [proposals, setProposals] = useState<BantuanProposal[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [activeToast, setActiveToast] = useState<Notification | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -315,6 +337,10 @@ export default function App() {
         if (user && update.user_id === user.id) {
           fetchFarms();
         }
+      } else if (update.type === 'tasks') {
+        if (user && (user.role === 'admin' || user.role === 'petugas' || update.officer_id === user.id)) {
+          fetchTasks();
+        }
       }
     });
 
@@ -334,6 +360,7 @@ export default function App() {
       fetchProducts();
       fetchFarms();
       fetchProposals();
+      fetchTasks();
     }
   }, [user]);
 
@@ -376,6 +403,18 @@ export default function App() {
       setProposals(data);
     } catch (err) {
       console.error("Fetch proposals error:", err);
+    }
+  };
+
+  const fetchTasks = async () => {
+    if (!user) return;
+    try {
+      const url = user.role === 'admin' ? '/api/tasks' : `/api/tasks/${user.id}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      setTasks(data);
+    } catch (err) {
+      console.error("Fetch tasks error:", err);
     }
   };
 
@@ -433,7 +472,7 @@ export default function App() {
               className="inline-flex items-center justify-center w-24 h-24 rounded-[2.5rem] overflow-hidden mb-6 shadow-2xl shadow-emerald-500/20 bg-white/80 backdrop-blur-xl p-2 border border-white/50"
             >
               <img 
-                src="/logo.png" 
+                src="/logo.svg" 
                 alt="SINAR TANI Logo" 
                 className="w-full h-full object-contain"
                 onError={(e) => {
@@ -561,7 +600,7 @@ export default function App() {
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center bg-white shadow-sm p-1.5 border border-slate-100">
                 <img 
-                  src="/logo.png" 
+                  src="/logo.svg" 
                   alt="Logo" 
                   className="w-full h-full object-contain" 
                   onError={(e) => {
@@ -618,6 +657,14 @@ export default function App() {
               active={activeTab === 'bantuan'} 
               onClick={() => { setActiveTab('bantuan'); setIsSidebarOpen(false); }} 
             />
+            {(user.role === 'petugas' || user.role === 'admin') && (
+              <SidebarItem 
+                icon={ClipboardList} 
+                label="Tugas" 
+                active={activeTab === 'tugas'} 
+                onClick={() => { setActiveTab('tugas'); setIsSidebarOpen(false); }} 
+              />
+            )}
             <SidebarItem 
               icon={UserIcon} 
               label="Profil" 
@@ -657,7 +704,7 @@ export default function App() {
               </button>
               <div className="lg:hidden flex items-center gap-2">
                 <img 
-                  src="/logo.png" 
+                  src="/logo.svg" 
                   alt="Logo" 
                   className="w-8 h-8 object-contain"
                   onError={(e) => {
@@ -709,6 +756,7 @@ export default function App() {
               {activeTab === 'pasar' && <PasarTani products={products} user={user} refresh={fetchProducts} />}
               {activeTab === 'kalkulator' && <KalkulatorTani farms={farms} user={user} refresh={fetchFarms} />}
               {activeTab === 'bantuan' && <BantuanDinas proposals={proposals} user={user} refresh={fetchProposals} />}
+              {activeTab === 'tugas' && <TugasPetugas tasks={tasks} user={user} refresh={fetchTasks} />}
               {activeTab === 'edukasi' && <KelasTani user={user} />}
               {activeTab === 'profil' && <Profil user={user} setUser={setUser} />}
             </motion.div>
@@ -758,13 +806,13 @@ function Home({
     <div className="max-w-md mx-auto pb-32">
       {/* Header */}
       <div className="flex justify-between items-start pt-8 px-6 mb-4">
-        <div>
-          <h1 className="text-3xl font-black text-white tracking-widest drop-shadow-lg">
+        <div className="header-left">
+          <h1 className="text-3xl font-extrabold text-white tracking-widest drop-shadow-lg">
             SINAR <span className="text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.5)]">TANI</span>
           </h1>
-          <p className="text-sm text-white/90 font-medium mt-1">Halo, {user.fullname}</p>
+          <p className="text-xs text-white/90 font-medium mt-1 uppercase tracking-widest">Halo, {user.fullname}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <NotificationBell 
             notifications={notifications}
             setNotifications={setNotifications}
@@ -787,7 +835,7 @@ function Home({
 
       {/* Status Card */}
       <div className="px-6 mb-8">
-        <Card className="p-5 bg-white/95 backdrop-blur-2xl border-white/60 shadow-2xl flex justify-between items-center hover:-translate-y-1 transition-all">
+        <div className="glass-card p-6 flex justify-between items-center hover:-translate-y-1 transition-all">
           <div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Status Keanggotaan</p>
             <h3 className="text-lg font-black text-slate-900">
@@ -795,14 +843,14 @@ function Home({
             </h3>
           </div>
           <div className="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-md flex items-center gap-1.5">
-            <Check size={14} /> Aktif
+            <Check size={14} /> Aktif 2024
           </div>
-        </Card>
+        </div>
       </div>
 
       {/* Carousel */}
       <div className="px-6 mb-8">
-        <div className="rounded-3xl border-2 border-white/40 shadow-2xl overflow-hidden h-44">
+        <div className="rounded-[2rem] border-2 border-white/40 shadow-2xl overflow-hidden h-44">
           <div className="flex h-full overflow-x-auto snap-x snap-mandatory scrollbar-hide">
             <img className="min-w-full h-full object-cover snap-center" src="https://images.unsplash.com/photo-1625246333195-58197bd47d72?w=800&h=400&fit=crop" alt="Promo 1" />
             <img className="min-w-full h-full object-cover snap-center" src="https://images.unsplash.com/photo-1592982537447-6f2a6a0c7c18?w=800&h=400&fit=crop" alt="Promo 2" />
@@ -812,34 +860,33 @@ function Home({
 
       <div className="px-6 mb-4 flex items-center gap-2">
         <div className="w-1 h-5 bg-gradient-to-b from-emerald-400 to-emerald-600 rounded-full" />
-        <h2 className="text-white font-black text-base drop-shadow-md">Menu Layanan</h2>
+        <h2 className="text-white font-black text-base drop-shadow-md uppercase tracking-widest">Menu Layanan Terpadu</h2>
       </div>
 
       {/* Menu Grid */}
       <div className="grid grid-cols-3 gap-4 px-6 mb-8">
-        <MenuCard icon="🗺️" label="Radar Hama" color="border-red-500" bg="bg-gradient-to-br from-pink-500 to-red-500" onClick={() => setActiveTab('dashboard')} />
-        <MenuCard icon="🏪" label="Pasar Tani" color="border-emerald-500" bg="bg-gradient-to-br from-emerald-500 to-lime-500" onClick={() => setActiveTab('pasar')} />
-        <MenuCard icon="📚" label="Kelas Tani" color="border-blue-500" bg="bg-gradient-to-br from-blue-500 to-cyan-400" onClick={() => setActiveTab('edukasi')} />
-        <MenuCard icon="🧮" label="Kalkulator Tani" color="border-cyan-500" bg="bg-gradient-to-br from-cyan-500 to-cyan-300" onClick={() => setActiveTab('kalkulator')} />
-        <MenuCard icon="🏦" label="Bantuan Dinas" color="border-orange-500" bg="bg-gradient-to-br from-red-500 to-orange-400" onClick={() => setActiveTab('bantuan')} />
-        <MenuCard icon="👤" label="Edit Profil" color="border-purple-500" bg="bg-gradient-to-br from-purple-600 to-pink-400" onClick={() => setActiveTab('profil')} />
-        <MenuCard icon="⏻" label="Keluar Akun" color="border-slate-500" bg="bg-gradient-to-br from-slate-600 to-slate-400" onClick={handleLogout} />
+        <MenuCard icon={<Activity size={28} />} label="Radar Hama" color="border-red-500" bg="bg-gradient-to-br from-pink-500 to-red-500" onClick={() => setActiveTab('dashboard')} />
+        <MenuCard icon={<ShoppingBag size={28} />} label="Pasar Tani" color="border-emerald-500" bg="bg-gradient-to-br from-emerald-500 to-lime-500" onClick={() => setActiveTab('pasar')} />
+        <MenuCard icon={<BookOpen size={28} />} label="Kelas Tani" color="border-blue-500" bg="bg-gradient-to-br from-blue-500 to-cyan-400" onClick={() => setActiveTab('edukasi')} />
+        <MenuCard icon={<HandHelping size={28} />} label="Bantuan Dinas" color="border-orange-500" bg="bg-gradient-to-br from-red-500 to-orange-400" onClick={() => setActiveTab('bantuan')} />
+        <MenuCard icon={<UserIcon size={28} />} label="Edit Profil" color="border-purple-500" bg="bg-gradient-to-br from-purple-600 to-pink-400" onClick={() => setActiveTab('profil')} />
+        <MenuCard icon={<LogOut size={28} />} label="Keluar Akun" color="border-slate-500" bg="bg-gradient-to-br from-slate-600 to-slate-400" onClick={handleLogout} />
       </div>
     </div>
   );
 }
 
-function MenuCard({ icon, label, color, bg, onClick }: { icon: string, label: string, color: string, bg: string, onClick: () => void | Promise<void> }) {
+function MenuCard({ icon, label, color, bg, onClick }: { icon: React.ReactNode, label: string, color: string, bg: string, onClick: () => void | Promise<void> }) {
   return (
     <button 
       onClick={onClick}
       className="group flex flex-col items-center"
     >
       <div className={cn(
-        "w-full bg-white/98 backdrop-blur-md rounded-3xl p-4 flex flex-col items-center shadow-lg border-b-4 transition-all group-hover:-translate-y-1.5 group-hover:shadow-2xl",
+        "w-full bg-white/98 backdrop-blur-md rounded-[2rem] p-4 flex flex-col items-center shadow-lg border-b-4 transition-all group-hover:-translate-y-1.5 group-hover:shadow-2xl",
         color
       )}>
-        <div className={cn("w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-xl mb-2 transition-transform group-hover:scale-110 group-hover:rotate-6", bg)}>
+        <div className={cn("w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-xl mb-2 transition-transform group-hover:scale-110 group-hover:rotate-6", bg)}>
           {icon}
         </div>
         <span className="text-[10px] font-black text-slate-600 leading-tight uppercase tracking-tight text-center">
@@ -852,29 +899,29 @@ function MenuCard({ icon, label, color, bg, onClick }: { icon: string, label: st
 
 function BottomNav({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: string) => void }) {
   return (
-    <div className="fixed bottom-5 left-0 right-0 z-50 px-4 max-w-md mx-auto lg:hidden">
+    <div className="fixed bottom-5 left-0 right-0 z-50 px-4 max-w-md mx-auto">
       <div className="bg-slate-900/85 backdrop-blur-3xl border border-white/10 rounded-[2rem] p-2 flex justify-between items-center shadow-2xl">
-        <NavItem icon="🏠" label="Beranda" active={activeTab === 'home'} onClick={() => setActiveTab('home')} />
-        <NavItem icon="🗺️" label="Radar" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+        <NavItem icon={<HomeIcon size={20} />} label="Beranda" active={activeTab === 'home'} onClick={() => setActiveTab('home')} />
+        <NavItem icon={<Activity size={20} />} label="Radar" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
         
         <div className="relative -mt-10">
           <button 
             onClick={() => setActiveTab('dashboard')}
-            className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 via-emerald-600 to-emerald-800 border-4 border-slate-900/85 flex items-center justify-center text-2xl text-white shadow-[0_0_20px_rgba(16,185,129,0.5)] transition-transform hover:scale-110"
+            className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 via-emerald-600 to-emerald-800 border-4 border-slate-900/85 flex items-center justify-center text-white shadow-[0_0_20px_rgba(16,185,129,0.5)] transition-transform hover:scale-110 animate-pulse-glow"
           >
-            📷
+            <Camera size={28} />
           </button>
           <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[9px] font-black text-emerald-400 uppercase tracking-widest whitespace-nowrap drop-shadow-md">Lapor</span>
         </div>
 
-        <NavItem icon="🛒" label="Pasar" active={activeTab === 'pasar'} onClick={() => setActiveTab('pasar')} />
-        <NavItem icon="🧮" label="Kalkulator" active={activeTab === 'kalkulator'} onClick={() => setActiveTab('kalkulator')} />
+        <NavItem icon={<ShoppingBag size={20} />} label="Pasar" active={activeTab === 'pasar'} onClick={() => setActiveTab('pasar')} />
+        <NavItem icon={<UserIcon size={20} />} label="Profil" active={activeTab === 'profil'} onClick={() => setActiveTab('profil')} />
       </div>
     </div>
   );
 }
 
-function NavItem({ icon, label, active, onClick }: { icon: string, label: string, active: boolean, onClick: () => void }) {
+function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void }) {
   return (
     <button 
       onClick={onClick}
@@ -884,7 +931,7 @@ function NavItem({ icon, label, active, onClick }: { icon: string, label: string
       )}
     >
       {active && <div className="absolute top-1 w-1 h-1 bg-emerald-400 rounded-full shadow-[0_0_8px_#4ade80]" />}
-      <span className="text-xl">{icon}</span>
+      {icon}
       <span className="text-[9px] font-bold mt-1 uppercase tracking-tighter opacity-80">{label}</span>
     </button>
   );
@@ -892,6 +939,7 @@ function NavItem({ icon, label, active, onClick }: { icon: string, label: string
 
 function RadarHama({ reports, user, refresh }: { reports: Report[], user: User, refresh: () => void }) {
   const [showForm, setShowForm] = useState(false);
+  const [filter, setFilter] = useState({ status: 'Semua', hama: 'Semua' });
   const [formData, setFormData] = useState({
     desa: '',
     kec: '',
@@ -900,12 +948,67 @@ function RadarHama({ reports, user, refresh }: { reports: Report[], user: User, 
     lat: -7.67,
     lon: 109.65
   });
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [aiResult, setAiResult] = useState<{ name: string, treatment: string, prevention: string } | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const stats = {
+    total: reports.length,
     bahaya: reports.filter(r => r.status === 'Bahaya').length,
     waspada: reports.filter(r => r.status === 'Waspada').length,
     aman: reports.filter(r => r.status === 'Aman').length,
+  };
+
+  const pieData = [
+    { name: 'Bahaya', value: stats.bahaya, color: '#ef4444' },
+    { name: 'Waspada', value: stats.waspada, color: '#f59e0b' },
+    { name: 'Aman', value: stats.aman, color: '#10b981' },
+  ];
+
+  const hamaCounts = reports.reduce((acc: any, r) => {
+    acc[r.hama] = (acc[r.hama] || 0) + 1;
+    return acc;
+  }, {});
+
+  const barData = Object.keys(hamaCounts).map(hama => ({
+    name: hama,
+    jumlah: hamaCounts[hama]
+  })).sort((a, b) => b.jumlah - a.jumlah).slice(0, 5);
+
+  const filteredReports = reports.filter(r => {
+    const statusMatch = filter.status === 'Semua' || r.status === filter.status;
+    const hamaMatch = filter.hama === 'Semua' || r.hama === filter.hama;
+    return statusMatch && hamaMatch;
+  });
+
+  const uniqueHamas = Array.from(new Set(reports.map(r => r.hama)));
+
+  const getIcon = (status: string) => {
+    const color = status === 'Bahaya' ? '#ef4444' : status === 'Waspada' ? '#f59e0b' : '#10b981';
+    return L.divIcon({
+      html: `<div style="background-color: ${color}; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.3);"></div>`,
+      className: 'custom-div-icon',
+      iconSize: [12, 12],
+      iconAnchor: [6, 6]
+    });
+  };
+
+  const LocateButton = () => {
+    const map = useMap();
+    return (
+      <button 
+        onClick={() => {
+          navigator.geolocation.getCurrentPosition((pos) => {
+            map.setView([pos.coords.latitude, pos.coords.longitude], 14);
+          });
+        }}
+        className="absolute bottom-5 right-5 z-[500] bg-white p-3 rounded-full shadow-xl text-slate-600 hover:text-emerald-600 transition-all"
+        title="Lokasi Saya"
+      >
+        <Navigation size={20} />
+      </button>
+    );
   };
 
   const handleVerify = async (reportId: number) => {
@@ -921,6 +1024,60 @@ function RadarHama({ reports, user, refresh }: { reports: Report[], user: User, 
     }
   };
 
+  const handleAiIdentify = async () => {
+    if (!selectedFile) return;
+    setAiLoading(true);
+    setAiResult(null);
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.readAsDataURL(selectedFile);
+      });
+      const base64Data = await base64Promise;
+
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                data: base64Data,
+                mimeType: selectedFile.type,
+              },
+            },
+            {
+              text: "Identifikasi hama atau penyakit tanaman pada gambar ini. Berikan nama hama/penyakit, cara penanganan (treatment), dan cara pencegahan (prevention). Berikan jawaban dalam format JSON.",
+            },
+          ],
+        },
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              treatment: { type: Type.STRING },
+              prevention: { type: Type.STRING },
+            },
+            required: ["name", "treatment", "prevention"],
+          },
+        },
+      });
+
+      const result = JSON.parse(response.text || '{}');
+      setAiResult(result);
+      if (result.name) {
+        setFormData(prev => ({ ...prev, hama: result.name }));
+      }
+    } catch (err) {
+      console.error("AI Identification error:", err);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -933,6 +1090,9 @@ function RadarHama({ reports, user, refresh }: { reports: Report[], user: User, 
       body.append('status', formData.status);
       body.append('lat', formData.lat.toString());
       body.append('lon', formData.lon.toString());
+      if (selectedFile) {
+        body.append('foto', selectedFile);
+      }
 
       const res = await fetch('/api/reports', {
         method: 'POST',
@@ -941,6 +1101,8 @@ function RadarHama({ reports, user, refresh }: { reports: Report[], user: User, 
 
       if (res.ok) {
         setShowForm(false);
+        setSelectedFile(null);
+        setAiResult(null);
         refresh();
       }
     } catch (err) {
@@ -951,129 +1113,224 @@ function RadarHama({ reports, user, refresh }: { reports: Report[], user: User, 
   };
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="p-4 border-l-4 border-red-500/50">
-          <p className="text-slate-500 text-sm font-medium">Status Bahaya</p>
-          <p className="text-3xl font-bold text-slate-900 mt-1">{stats.bahaya}</p>
+    <div className="space-y-6 pb-20">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="glass-card p-6 text-center">
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Laporan</span>
+          <div className="text-4xl font-black text-slate-900">{stats.total}</div>
+        </div>
+        <div className="glass-card p-6 text-center border-l-4 border-red-500">
+          <span className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1 block">Bahaya</span>
+          <div className="text-4xl font-black text-slate-900">{stats.bahaya}</div>
+        </div>
+        <div className="glass-card p-6 text-center border-l-4 border-amber-500">
+          <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1 block">Waspada</span>
+          <div className="text-4xl font-black text-slate-900">{stats.waspada}</div>
+        </div>
+        <div className="glass-card p-6 text-center border-l-4 border-emerald-500">
+          <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-1 block">Aman</span>
+          <div className="text-4xl font-black text-slate-900">{stats.aman}</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card className="p-6 glass-card">
+          <h5 className="font-black text-slate-900 uppercase tracking-tight mb-4 flex items-center gap-2">
+            <TrendingUp size={18} className="text-emerald-500" /> Status Lahan
+          </h5>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {pieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+                <RechartsLegend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
         </Card>
-        <Card className="p-4 border-l-4 border-amber-500/50">
-          <p className="text-slate-500 text-sm font-medium">Status Waspada</p>
-          <p className="text-3xl font-bold text-slate-900 mt-1">{stats.waspada}</p>
-        </Card>
-        <Card className="p-4 border-l-4 border-emerald-500/50">
-          <p className="text-slate-500 text-sm font-medium">Status Aman</p>
-          <p className="text-3xl font-bold text-slate-900 mt-1">{stats.aman}</p>
+
+        <Card className="p-6 glass-card">
+          <h5 className="font-black text-slate-900 uppercase tracking-tight mb-4 flex items-center gap-2">
+            <AlertTriangle size={18} className="text-amber-500" /> Tren Hama
+          </h5>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={barData}>
+                <XAxis dataKey="name" hide />
+                <YAxis hide />
+                <Tooltip />
+                <Bar dataKey="jumlah" fill="#10b981" radius={[10, 10, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </Card>
       </div>
 
-      <Card className="h-[400px] relative z-0">
+      <div className="glass-card overflow-hidden relative">
+        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+          <h5 className="font-black text-slate-900 uppercase tracking-tight mb-0 flex items-center gap-2">
+            <MapPin size={18} className="text-red-500" /> Peta Persebaran Hama
+          </h5>
+          <button 
+            onClick={() => setShowForm(true)}
+            className="bg-emerald-600 text-white px-6 py-2 rounded-full text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-200 hover:scale-105 transition-all"
+          >
+            Lapor
+          </button>
+        </div>
+        <div className="h-[480px] relative z-0">
+          <div className="absolute top-5 left-5 z-[500] flex flex-col gap-2">
+            <div className="bg-white/90 backdrop-blur-md p-3 rounded-2xl shadow-xl border border-white/50 flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                <Filter size={12} /> Filter
+              </div>
+              <select 
+                className="text-xs font-bold text-slate-700 bg-transparent outline-none"
+                value={filter.status}
+                onChange={e => setFilter({...filter, status: e.target.value})}
+              >
+                <option value="Semua">Semua Status</option>
+                <option value="Bahaya">Bahaya</option>
+                <option value="Waspada">Waspada</option>
+                <option value="Aman">Aman</option>
+              </select>
+            </div>
+          </div>
+
         <MapContainer center={[-7.67, 109.65]} zoom={12} className="h-full w-full">
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          {reports.map(report => (
+          <LocateButton />
+          {filteredReports.map(report => (
             <React.Fragment key={report.id}>
-              {/* Heatmap effect using CircleMarker */}
               <CircleMarker 
                 center={[report.lat, report.lon]}
-                radius={30}
-                pathOptions={{
+                pathOptions={{ 
+                  color: report.status === 'Bahaya' ? '#ef4444' : report.status === 'Waspada' ? '#f59e0b' : '#10b981',
                   fillColor: report.status === 'Bahaya' ? '#ef4444' : report.status === 'Waspada' ? '#f59e0b' : '#10b981',
-                  fillOpacity: 0.2,
-                  stroke: false
+                  fillOpacity: 0.4,
+                  weight: 2
                 }}
+                radius={20}
               />
-              <Marker position={[report.lat, report.lon]}>
-                <Popup>
-                  <div className="p-2">
-                    <h4 className="font-bold text-emerald-700">{report.hama}</h4>
-                    <p className="text-xs text-slate-600">{report.desa}, {report.kec}</p>
-                    <span className={cn(
-                      "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase mt-2 inline-block",
-                      report.status === 'Bahaya' ? "bg-red-100 text-red-600" :
-                      report.status === 'Waspada' ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
-                    )}>
-                      {report.status}
-                    </span>
+              <Marker position={[report.lat, report.lon]} icon={getIcon(report.status)}>
+                <Popup className="custom-popup">
+                  <div className="w-64">
+                    {report.foto && (
+                      <img 
+                        src={report.foto} 
+                        className="w-full h-32 object-cover" 
+                        alt="Laporan"
+                        onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/hama/400/200' }}
+                      />
+                    )}
+                    <div className="p-4">
+                      <div className="flex justify-between items-start mb-2">
+                        <h4 className="font-black text-slate-900 uppercase tracking-tight m-0">{report.hama}</h4>
+                        <span className={cn(
+                          "text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest",
+                          report.status === 'Bahaya' ? "bg-red-100 text-red-600" :
+                          report.status === 'Waspada' ? "bg-amber-100 text-amber-600" :
+                          "bg-emerald-100 text-emerald-600"
+                        )}>
+                          {report.status}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 font-bold mb-3 flex items-center gap-1">
+                        <MapPin size={10} /> {report.desa}, {report.kec}
+                      </p>
+                      <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-black text-slate-400">
+                            {report.user_name[0]}
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-600">{report.user_name}</span>
+                        </div>
+                        {(user.role === 'petugas' || user.role === 'admin') && report.is_verified === 0 && (
+                          <button 
+                            onClick={() => handleVerify(report.id)}
+                            className="text-[10px] font-black text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 transition-all uppercase tracking-widest"
+                          >
+                            Verifikasi
+                          </button>
+                        )}
+                        {report.is_verified === 1 && (
+                          <div className="flex items-center gap-1 text-[10px] font-black text-emerald-600 uppercase tracking-widest">
+                            <CheckCircle2 size={12} /> Terverifikasi
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </Popup>
               </Marker>
             </React.Fragment>
           ))}
         </MapContainer>
-      </Card>
-
-      <div className="flex justify-between items-center">
-        <h3 className="text-xl font-bold text-slate-800">Laporan Terkini</h3>
-        <div className="flex gap-2">
-          <button 
-            onClick={() => exportToCSV(reports, 'laporan_radar_hama.csv')}
-            className="bg-white text-slate-600 px-4 py-2 rounded-xl flex items-center gap-2 font-semibold shadow-md border border-slate-100 hover:bg-slate-50 transition-all"
-          >
-            <Download size={18} />
-            <span className="hidden sm:inline">Export CSV</span>
-          </button>
-          <button 
-            onClick={() => setShowForm(true)}
-            className="glass-emerald text-white px-4 py-2 rounded-xl flex items-center gap-2 font-semibold shadow-lg shadow-emerald-100"
-          >
-            <Plus size={20} />
-            <span>Buat Laporan</span>
-          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {reports.map(report => (
-          <Card key={report.id} className="p-5 flex gap-4">
-            <div className="w-24 h-24 bg-slate-100 rounded-xl overflow-hidden flex-shrink-0">
-              {report.foto ? (
-                <img src={report.foto} className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-slate-300">
-                  <AlertTriangle size={32} />
-                </div>
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex justify-between items-start mb-1">
-                <h4 className="font-bold text-slate-900 truncate">{report.hama}</h4>
-                <span className={cn(
-                  "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider",
-                  report.status === 'Bahaya' ? "bg-red-100 text-red-600" :
-                  report.status === 'Waspada' ? "bg-amber-100 text-amber-600" : "bg-emerald-100 text-emerald-600"
-                )}>
-                  {report.status}
-                </span>
-              </div>
-              <p className="text-sm text-slate-500 flex items-center gap-1">
-                <MapPin size={14} />
-                {report.desa}, {report.kec}
-              </p>
-              <div className="mt-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-bold">
-                    {report.user_name[0]}
-                  </div>
-                  <span className="text-xs text-slate-600 font-medium">{report.user_name}</span>
-                  {report.is_verified === 1 && (
-                    <CheckCircle2 size={14} className="text-emerald-500" />
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {(user.role === 'petugas' || user.role === 'admin') && report.is_verified === 0 && (
-                    <button 
-                      onClick={() => handleVerify(report.id)}
-                      className="text-[10px] font-bold text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 transition-all"
-                    >
-                      Verifikasi
-                    </button>
-                  )}
-                  <span className="text-[10px] text-slate-400">{new Date(report.created_at).toLocaleDateString()}</span>
-                </div>
-              </div>
-            </div>
-          </Card>
-        ))}
+      <div className="glass-card p-6">
+        <h5 className="font-black text-slate-900 uppercase tracking-tight mb-4">Laporan Terbaru</h5>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-slate-100">
+                <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Tanggal</th>
+                <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Lokasi</th>
+                <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Hama</th>
+                <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {reports.slice(0, 10).map(report => (
+                <tr key={report.id} className="group">
+                  <td className="py-4 text-xs font-bold text-slate-500">{new Date(report.created_at).toLocaleDateString()}</td>
+                  <td className="py-4 text-xs font-bold text-slate-700">{report.desa}</td>
+                  <td className="py-4 text-xs font-bold text-slate-900">{report.hama}</td>
+                  <td className="py-4">
+                    <span className={cn(
+                      "text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest",
+                      report.status === 'Bahaya' ? "bg-red-100 text-red-600" :
+                      report.status === 'Waspada' ? "bg-amber-100 text-amber-600" :
+                      "bg-emerald-100 text-emerald-600"
+                    )}>
+                      {report.status}
+                    </span>
+                  </td>
+                  <td className="py-4">
+                    {(user.role === 'petugas' || user.role === 'admin') && report.is_verified === 0 ? (
+                      <button 
+                        onClick={() => handleVerify(report.id)}
+                        className="text-[9px] font-black text-emerald-600 hover:bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-100 transition-all uppercase tracking-widest"
+                      >
+                        Verifikasi
+                      </button>
+                    ) : report.is_verified === 1 ? (
+                      <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-1">
+                        <CheckCircle2 size={12} /> OK
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">Menunggu</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <Modal isOpen={showForm} onClose={() => setShowForm(false)} title="Buat Laporan OPT">
@@ -1098,6 +1355,50 @@ function RadarHama({ reports, user, refresh }: { reports: Report[], user: User, 
               />
             </div>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Foto Hama/Tanaman</label>
+            <div className="flex gap-2">
+              <input 
+                type="file" accept="image/*"
+                className="flex-1 px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
+                onChange={e => setSelectedFile(e.target.files?.[0] || null)}
+              />
+              <button 
+                type="button"
+                disabled={!selectedFile || aiLoading}
+                onClick={handleAiIdentify}
+                className="bg-purple-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 font-bold shadow-lg shadow-purple-100 disabled:opacity-50 transition-all hover:bg-purple-700"
+              >
+                {aiLoading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
+                <span className="hidden sm:inline">Identifikasi AI</span>
+              </button>
+            </div>
+          </div>
+          {aiResult && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-4 bg-purple-50 rounded-2xl border border-purple-100 space-y-3"
+            >
+              <div className="flex items-center gap-2 text-purple-700 font-black text-xs uppercase tracking-widest">
+                <Sparkles size={14} /> Hasil Analisis AI
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-purple-400 uppercase tracking-tighter">Identifikasi</p>
+                <p className="text-sm font-black text-slate-900">{aiResult.name}</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <p className="text-[10px] font-bold text-purple-400 uppercase tracking-tighter">Penanganan</p>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">{aiResult.treatment}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-purple-400 uppercase tracking-tighter">Pencegahan</p>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">{aiResult.prevention}</p>
+                </div>
+              </div>
+            </motion.div>
+          )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Jenis Hama/OPT</label>
             <input 
@@ -1852,7 +2153,9 @@ function BantuanDinas({ proposals, user, refresh }: { proposals: BantuanProposal
   };
 
   const myProposals = proposals.filter(p => p.user_id === user.id);
-  const approvedCount = myProposals.filter(p => p.status === 'Disetujui').length;
+  const totalReceived = proposals.length;
+  const totalApproved = proposals.filter(p => p.status === 'Disetujui').length;
+  const myApprovedCount = myProposals.filter(p => p.status === 'Disetujui').length;
 
   const canManage = user.role === 'admin' || user.role === 'petugas';
 
@@ -1873,12 +2176,12 @@ function BantuanDinas({ proposals, user, refresh }: { proposals: BantuanProposal
             <div className="text-[9px] font-black text-white/70 uppercase tracking-widest">Tersedia</div>
           </div>
           <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-4 text-center">
-            <div className="text-2xl font-black text-amber-400 mb-1">{myProposals.length}</div>
-            <div className="text-[9px] font-black text-white/70 uppercase tracking-widest">Pengajuan</div>
+            <div className="text-2xl font-black text-amber-400 mb-1">{canManage ? totalReceived : myProposals.length}</div>
+            <div className="text-[9px] font-black text-white/70 uppercase tracking-widest">{canManage ? 'Total Masuk' : 'Pengajuan'}</div>
           </div>
           <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-4 text-center">
-            <div className="text-2xl font-black text-blue-400 mb-1">{approvedCount}</div>
-            <div className="text-[9px] font-black text-white/70 uppercase tracking-widest">Disetujui</div>
+            <div className="text-2xl font-black text-blue-400 mb-1">{canManage ? totalApproved : myApprovedCount}</div>
+            <div className="text-[9px] font-black text-white/70 uppercase tracking-widest">{canManage ? 'Total Disetujui' : 'Disetujui'}</div>
           </div>
         </div>
       </div>
@@ -2007,6 +2310,195 @@ function BantuanDinas({ proposals, user, refresh }: { proposals: BantuanProposal
             className="w-full bg-gradient-to-r from-amber-500 to-orange-600 text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-orange-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
           >
             {loading ? 'Mengirim...' : 'Kirim Pengajuan'}
+          </button>
+        </form>
+      </Modal>
+    </div>
+  );
+}
+
+function TugasPetugas({ tasks, user, refresh }: { tasks: Task[], user: User, refresh: () => void }) {
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [officers, setOfficers] = useState<any[]>([]);
+  const [formData, setFormData] = useState({
+    officer_id: '',
+    title: '',
+    description: '',
+    due_date: new Date().toISOString().split('T')[0]
+  });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (user.role === 'admin') {
+      fetch('/api/officers').then(res => res.json()).then(setOfficers);
+    }
+  }, [user.role]);
+
+  const handleStatusUpdate = async (id: number, status: string) => {
+    try {
+      await fetch(`/api/tasks/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      refresh();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+      if (res.ok) {
+        setShowAddModal(false);
+        setFormData({
+          officer_id: '',
+          title: '',
+          description: '',
+          due_date: new Date().toISOString().split('T')[0]
+        });
+        refresh();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="max-w-md mx-auto pb-20">
+      <div className="text-center py-10">
+        <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl flex items-center justify-center text-4xl shadow-2xl shadow-blue-500/30 mx-auto mb-6 text-white">
+          <ClipboardList size={40} />
+        </div>
+        <h2 className="text-2xl font-black text-white drop-shadow-md">Manajemen Tugas</h2>
+        <p className="text-white/80 text-sm font-medium">Pantau dan kelola tugas lapangan</p>
+      </div>
+
+      <div className="px-6 mb-8 flex justify-between items-center">
+        <h3 className="text-white font-black uppercase tracking-widest text-xs">Daftar Tugas</h3>
+        {user.role === 'admin' && (
+          <button 
+            onClick={() => setShowAddModal(true)}
+            className="bg-white/10 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-[10px] font-black uppercase tracking-widest border border-white/20 hover:bg-white/20 transition-all"
+          >
+            <Plus size={14} /> Tambah Tugas
+          </button>
+        )}
+      </div>
+
+      <div className="px-6 space-y-4">
+        {tasks.length === 0 && (
+          <div className="text-center py-10 bg-white/5 rounded-3xl border border-white/10">
+            <p className="text-white/50 font-bold text-sm">Belum ada tugas yang tersedia</p>
+          </div>
+        )}
+        {tasks.map(task => (
+          <Card key={task.id} className="p-5 bg-white/95 backdrop-blur-2xl border-white/60 shadow-2xl">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <h4 className="font-black text-slate-900 text-base leading-tight">{task.title}</h4>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                  Tenggat: {new Date(task.due_date).toLocaleDateString('id-ID')}
+                </p>
+              </div>
+              <span className={cn(
+                "px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest",
+                task.status === 'Completed' ? "bg-emerald-100 text-emerald-700" :
+                task.status === 'Ongoing' ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"
+              )}>
+                {task.status}
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed mb-4 font-medium">{task.description}</p>
+            
+            {user.role === 'admin' && (
+              <div className="flex items-center gap-2 pt-3 border-t border-slate-100 mb-4">
+                <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center text-[8px] font-bold text-blue-600">
+                  {task.officer_name?.[0]}
+                </div>
+                <span className="text-[10px] text-slate-500 font-bold">Ditugaskan ke: {task.officer_name}</span>
+              </div>
+            )}
+
+            {(user.role === 'petugas' || user.role === 'admin') && task.status !== 'Completed' && (
+              <div className="flex gap-2">
+                {task.status === 'Pending' && (
+                  <button 
+                    onClick={() => handleStatusUpdate(task.id, 'Ongoing')}
+                    className="flex-1 bg-blue-600 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-500/20 transition-all hover:scale-[1.02]"
+                  >
+                    Mulai Tugas
+                  </button>
+                )}
+                {task.status === 'Ongoing' && (
+                  <button 
+                    onClick={() => handleStatusUpdate(task.id, 'Completed')}
+                    className="flex-1 bg-emerald-600 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.02]"
+                  >
+                    Selesaikan
+                  </button>
+                )}
+              </div>
+            )}
+          </Card>
+        ))}
+      </div>
+
+      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Tambah Tugas Baru">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Pilih Petugas</label>
+            <select 
+              required
+              className="w-full px-5 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all font-bold text-slate-700"
+              value={formData.officer_id}
+              onChange={e => setFormData({...formData, officer_id: e.target.value})}
+            >
+              <option value="">Pilih Petugas...</option>
+              {officers.map(o => <option key={o.id} value={o.id}>{o.fullname} (@{o.username})</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Judul Tugas</label>
+            <input 
+              type="text" required placeholder="Contoh: Kunjungan Farm A"
+              className="w-full px-5 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all font-bold text-slate-700"
+              value={formData.title}
+              onChange={e => setFormData({...formData, title: e.target.value})}
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Deskripsi</label>
+            <textarea 
+              required rows={3} placeholder="Detail tugas..."
+              className="w-full px-5 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none resize-none transition-all font-bold text-slate-700"
+              value={formData.description}
+              onChange={e => setFormData({...formData, description: e.target.value})}
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Tenggat Waktu</label>
+            <input 
+              type="date" required
+              className="w-full px-5 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all font-bold text-slate-700"
+              value={formData.due_date}
+              onChange={e => setFormData({...formData, due_date: e.target.value})}
+            />
+          </div>
+          <button 
+            disabled={loading}
+            className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
+          >
+            {loading ? 'Menyimpan...' : 'Simpan Tugas'}
           </button>
         </form>
       </Modal>
@@ -2228,33 +2720,149 @@ function KelasTani({ user }: { user: User }) {
 }
 
 function Profil({ user, setUser }: { user: User, setUser: (u: User) => void }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [formData, setFormData] = useState({
+    fullname: user.fullname,
+    phone: user.phone || '',
+    bio: user.bio || '',
+    preferred_crops: user.preferred_crops || '',
+    farming_practices: user.farming_practices || ''
+  });
+  const [loading, setLoading] = useState(false);
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/profile/${user.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setUser(data);
+        localStorage.setItem('user', JSON.stringify(data));
+        setIsEditing(false);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <Card className="max-w-2xl mx-auto p-8">
+        <h3 className="text-2xl font-bold text-slate-900 mb-6 font-black uppercase tracking-tight">Edit Profil</h3>
+        <form onSubmit={handleUpdate} className="space-y-5">
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Nama Lengkap</label>
+            <input 
+              type="text" required
+              className="w-full px-5 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all font-bold text-slate-700"
+              value={formData.fullname}
+              onChange={e => setFormData({...formData, fullname: e.target.value})}
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">No. Telepon</label>
+            <input 
+              type="text"
+              className="w-full px-5 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all font-bold text-slate-700"
+              value={formData.phone}
+              onChange={e => setFormData({...formData, phone: e.target.value})}
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Bio</label>
+            <textarea 
+              rows={3}
+              className="w-full px-5 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none resize-none transition-all font-bold text-slate-700"
+              value={formData.bio}
+              onChange={e => setFormData({...formData, bio: e.target.value})}
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Komoditas Pilihan</label>
+            <input 
+              type="text" placeholder="Contoh: Padi, Jagung, Cabai"
+              className="w-full px-5 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all font-bold text-slate-700"
+              value={formData.preferred_crops}
+              onChange={e => setFormData({...formData, preferred_crops: e.target.value})}
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Praktik Pertanian</label>
+            <textarea 
+              rows={2} placeholder="Contoh: Organik, Hidroponik, Konvensional"
+              className="w-full px-5 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none resize-none transition-all font-bold text-slate-700"
+              value={formData.farming_practices}
+              onChange={e => setFormData({...formData, farming_practices: e.target.value})}
+            />
+          </div>
+          <div className="flex gap-4 pt-4">
+            <button 
+              type="button"
+              onClick={() => setIsEditing(false)}
+              className="flex-1 bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-200 transition-all"
+            >
+              Batal
+            </button>
+            <button 
+              type="submit"
+              disabled={loading}
+              className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-50 shadow-xl shadow-emerald-200"
+            >
+              {loading ? 'Menyimpan...' : 'Simpan'}
+            </button>
+          </div>
+        </form>
+      </Card>
+    );
+  }
+
   return (
-    <Card className="max-w-2xl mx-auto p-8">
+    <Card className="max-w-2xl mx-auto p-8 border-none shadow-2xl">
       <div className="flex flex-col items-center mb-8">
         <div className="w-32 h-32 rounded-3xl bg-emerald-100 flex items-center justify-center text-emerald-600 text-4xl font-bold mb-4 border-4 border-white shadow-xl">
           {user.fullname[0]}
         </div>
-        <h3 className="text-2xl font-bold text-slate-900">{user.fullname}</h3>
-        <p className="text-slate-500">@{user.username}</p>
+        <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tight">{user.fullname}</h3>
+        <p className="text-slate-500 font-bold">@{user.username}</p>
       </div>
 
       <div className="space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           <div>
-            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Nama Lengkap</label>
-            <p className="text-slate-800 font-semibold">{user.fullname}</p>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Nama Lengkap</label>
+            <p className="text-slate-800 font-bold px-1">{user.fullname}</p>
           </div>
           <div>
-            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">No. Telepon</label>
-            <p className="text-slate-800 font-semibold">{user.phone || '-'}</p>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">No. Telepon</label>
+            <p className="text-slate-800 font-bold px-1">{user.phone || '-'}</p>
           </div>
         </div>
         <div>
-          <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Bio</label>
-          <p className="text-slate-800 font-medium">{user.bio || 'Belum ada bio'}</p>
+          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Bio</label>
+          <p className="text-slate-800 font-medium px-1 leading-relaxed">{user.bio || 'Belum ada bio'}</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Komoditas Pilihan</label>
+            <p className="text-slate-800 font-bold px-1">{user.preferred_crops || '-'}</p>
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">Praktik Pertanian</label>
+            <p className="text-slate-800 font-bold px-1">{user.farming_practices || '-'}</p>
+          </div>
         </div>
         <div className="pt-6 border-t border-slate-100">
-          <button className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition-all">
+          <button 
+            onClick={() => setIsEditing(true)}
+            className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-200"
+          >
             Edit Profil
           </button>
         </div>
