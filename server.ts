@@ -27,6 +27,7 @@ function initDB() {
       phone TEXT,
       preferred_crops TEXT,
       farming_practices TEXT,
+      is_approved INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -139,16 +140,56 @@ function initDB() {
   try {
     db.exec("ALTER TABLE users ADD COLUMN farming_practices TEXT");
   } catch (e) {}
+  try {
+    db.exec("ALTER TABLE users ADD COLUMN is_approved INTEGER DEFAULT 1");
+  } catch (e) {}
+
+  // Seed Dummy Data if empty
+  const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get() as any;
+  if (userCount.count === 0 || (userCount.count <= 2)) {
+    // Default admin and officer are handled below, but let's add some farmers
+    const hashedPass = bcrypt.hashSync("petani123", 10);
+    db.prepare("INSERT INTO users (fullname, username, password, role, is_approved) VALUES (?, ?, ?, ?, ?)").run(
+      "Budi Setiawan", "budi", hashedPass, "petani", 1
+    );
+    db.prepare("INSERT INTO users (fullname, username, password, role, is_approved) VALUES (?, ?, ?, ?, ?)").run(
+      "Siti Aminah", "siti", hashedPass, "petani", 1
+    );
+  }
+
+  const articleCount = db.prepare("SELECT COUNT(*) as count FROM articles").get() as any;
+  if (articleCount.count === 0) {
+    db.prepare("INSERT INTO articles (title, category, content, image) VALUES (?, ?, ?, ?)").run(
+      "Teknik Menanam Padi Organik", "Budidaya", "Langkah-langkah menanam padi tanpa pestisida kimia...", "https://images.unsplash.com/photo-1530507629858-e4977d30e9e0?w=800"
+    );
+    db.prepare("INSERT INTO articles (title, category, content, image) VALUES (?, ?, ?, ?)").run(
+      "Mengenal Hama Wereng Batang Cokelat", "Hama", "Wereng batang cokelat adalah salah satu hama utama padi...", "https://images.unsplash.com/photo-1590682680695-43b964a3ae17?w=800"
+    );
+    db.prepare("INSERT INTO articles (title, category, content, image) VALUES (?, ?, ?, ?)").run(
+      "Manajemen Air Sawah yang Efisien", "Teknis", "Cara mengatur irigasi agar tanaman tumbuh optimal...", "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800"
+    );
+  }
+
+  const reportCount = db.prepare("SELECT COUNT(*) as count FROM reports").get() as any;
+  if (reportCount.count === 0) {
+    db.prepare("INSERT INTO reports (user_id, desa, kec, hama, status, lat, lon) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+      1, "Desa Karanganyar", "Kec. Kebumen", "Tikus", "Waspada", -7.67, 109.65
+    );
+    db.prepare("INSERT INTO reports (user_id, desa, kec, hama, status, lat, lon) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+      1, "Desa Panjer", "Kec. Kebumen", "Wereng", "Bahaya", -7.68, 109.66
+    );
+  }
 
   // Create or update default admin and officer
   const admin = db.prepare("SELECT * FROM users WHERE username = ?").get("admin") as any;
   const hashedAdmin = bcrypt.hashSync("admin123", 10);
   if (!admin) {
-    db.prepare("INSERT INTO users (fullname, username, password, role) VALUES (?, ?, ?, ?)").run(
+    db.prepare("INSERT INTO users (fullname, username, password, role, is_approved) VALUES (?, ?, ?, ?, ?)").run(
       "Administrator Sinar Tani",
       "admin",
       hashedAdmin,
-      "admin"
+      "admin",
+      1
     );
     console.log("Default admin created.");
   }
@@ -218,6 +259,10 @@ async function startServer() {
       return res.status(401).json({ error: "Username atau password salah" });
     }
 
+    if (user.is_approved === 0) {
+      return res.status(403).json({ error: "Akun Anda sedang menunggu persetujuan administrator" });
+    }
+
     console.log(`User found. Comparing passwords...`);
     try {
       const match = bcrypt.compareSync(password, user.password);
@@ -238,17 +283,36 @@ async function startServer() {
   app.post("/api/register", (req, res) => {
     const { fullname, username, password, role = 'petani' } = req.body;
     try {
+      const isApproved = role === 'admin' ? 0 : 1;
       const hashed = bcrypt.hashSync(password, 10);
-      db.prepare("INSERT INTO users (fullname, username, password, role) VALUES (?, ?, ?, ?)").run(
+      db.prepare("INSERT INTO users (fullname, username, password, role, is_approved) VALUES (?, ?, ?, ?, ?)").run(
         fullname,
         username,
         hashed,
-        role
+        role,
+        isApproved
       );
-      res.json({ success: true });
+      res.json({ success: true, message: role === 'admin' ? "Pendaftaran berhasil. Menunggu persetujuan admin." : "Pendaftaran berhasil." });
     } catch (err) {
       res.status(400).json({ error: "Username sudah digunakan" });
     }
+  });
+
+  // Admin approval routes
+  app.get("/api/admin/pending-users", (req, res) => {
+    const users = db.prepare("SELECT id, fullname, username, role, created_at FROM users WHERE is_approved = 0").all();
+    res.json(users);
+  });
+
+  app.post("/api/admin/approve-user/:id", (req, res) => {
+    const { id } = req.params;
+    db.prepare("UPDATE users SET is_approved = 1 WHERE id = ?").run(id);
+    res.json({ success: true });
+  });
+
+  app.get("/api/articles", (req, res) => {
+    const articles = db.prepare("SELECT * FROM articles ORDER BY created_at DESC").all();
+    res.json(articles);
   });
 
   // Profile

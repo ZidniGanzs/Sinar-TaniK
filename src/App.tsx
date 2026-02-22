@@ -33,7 +33,9 @@ import {
   Filter,
   Navigation,
   Activity,
-  BookOpen
+  BookOpen,
+  ShieldCheck,
+  AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MapContainer, TileLayer, Marker, Popup, CircleMarker, useMap } from 'react-leaflet';
@@ -304,6 +306,28 @@ export default function App() {
   const [activeToast, setActiveToast] = useState<Notification | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
 
+  const exportToCSV = (data: any[], filename: string) => {
+    if (!data || !data.length) return;
+    const headers = Object.keys(data[0]);
+    const csvRows = [
+      headers.join(','),
+      ...data.map(row => headers.map(header => {
+        const val = row[header];
+        return typeof val === 'string' ? `"${val.replace(/"/g, '""')}"` : val;
+      }).join(','))
+    ];
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   useEffect(() => {
     const socket = io();
 
@@ -436,7 +460,7 @@ export default function App() {
           localStorage.setItem('user', JSON.stringify(data));
         } else {
           setIsLogin(true);
-          setAuthError('Registrasi berhasil! Silakan login.');
+          setAuthError(data.message || 'Registrasi berhasil! Silakan login.');
         }
       } else {
         setAuthError(data.error);
@@ -643,14 +667,12 @@ export default function App() {
               active={activeTab === 'edukasi'} 
               onClick={() => { setActiveTab('edukasi'); setIsSidebarOpen(false); }} 
             />
-            {user.role === 'petani' && (
-              <SidebarItem 
-                icon={Calculator} 
-                label="Kalkulator" 
-                active={activeTab === 'kalkulator'} 
-                onClick={() => { setActiveTab('kalkulator'); setIsSidebarOpen(false); }} 
-              />
-            )}
+            <SidebarItem 
+              icon={Calculator} 
+              label="Kalkulator" 
+              active={activeTab === 'kalkulator'} 
+              onClick={() => { setActiveTab('kalkulator'); setIsSidebarOpen(false); }} 
+            />
             <SidebarItem 
               icon={HandHelping} 
               label="Bantuan" 
@@ -658,12 +680,22 @@ export default function App() {
               onClick={() => { setActiveTab('bantuan'); setIsSidebarOpen(false); }} 
             />
             {(user.role === 'petugas' || user.role === 'admin') && (
-              <SidebarItem 
-                icon={ClipboardList} 
-                label="Tugas" 
-                active={activeTab === 'tugas'} 
-                onClick={() => { setActiveTab('tugas'); setIsSidebarOpen(false); }} 
-              />
+              <>
+                <SidebarItem 
+                  icon={ClipboardList} 
+                  label="Tugas" 
+                  active={activeTab === 'tugas'} 
+                  onClick={() => { setActiveTab('tugas'); setIsSidebarOpen(false); }} 
+                />
+                {user.role === 'admin' && (
+                  <SidebarItem 
+                    icon={ShieldCheck} 
+                    label="Admin Panel" 
+                    active={activeTab === 'admin'} 
+                    onClick={() => { setActiveTab('admin'); setIsSidebarOpen(false); }} 
+                  />
+                )}
+              </>
             )}
             <SidebarItem 
               icon={UserIcon} 
@@ -752,9 +784,9 @@ export default function App() {
                   setShowNotifications={setShowNotifications}
                 />
               )}
-              {activeTab === 'dashboard' && <RadarHama reports={reports} user={user} refresh={fetchReports} />}
-              {activeTab === 'pasar' && <PasarTani products={products} user={user} refresh={fetchProducts} />}
-              {activeTab === 'kalkulator' && <KalkulatorTani farms={farms} user={user} refresh={fetchFarms} />}
+              {activeTab === 'dashboard' && <RadarHama reports={reports} user={user} refresh={fetchReports} exportCSV={exportToCSV} />}
+              {activeTab === 'pasar' && <PasarTani products={products} user={user} refresh={fetchProducts} exportCSV={exportToCSV} />}
+              {activeTab === 'kalkulator' && <KalkulatorTani farms={farms} user={user} refresh={fetchFarms} exportCSV={exportToCSV} />}
               {activeTab === 'bantuan' && <BantuanDinas proposals={proposals} user={user} refresh={fetchProposals} />}
               {activeTab === 'tugas' && <TugasPetugas tasks={tasks} user={user} refresh={fetchTasks} />}
               {activeTab === 'edukasi' && <KelasTani user={user} />}
@@ -868,7 +900,11 @@ function Home({
         <MenuCard icon={<Activity size={28} />} label="Radar Hama" color="border-red-500" bg="bg-gradient-to-br from-pink-500 to-red-500" onClick={() => setActiveTab('dashboard')} />
         <MenuCard icon={<ShoppingBag size={28} />} label="Pasar Tani" color="border-emerald-500" bg="bg-gradient-to-br from-emerald-500 to-lime-500" onClick={() => setActiveTab('pasar')} />
         <MenuCard icon={<BookOpen size={28} />} label="Kelas Tani" color="border-blue-500" bg="bg-gradient-to-br from-blue-500 to-cyan-400" onClick={() => setActiveTab('edukasi')} />
+        <MenuCard icon={<Calculator size={28} />} label="Kalkulator" color="border-amber-500" bg="bg-gradient-to-br from-amber-500 to-yellow-400" onClick={() => setActiveTab('kalkulator')} />
         <MenuCard icon={<HandHelping size={28} />} label="Bantuan Dinas" color="border-orange-500" bg="bg-gradient-to-br from-red-500 to-orange-400" onClick={() => setActiveTab('bantuan')} />
+        {user.role === 'admin' && (
+          <MenuCard icon={<ShieldCheck size={28} />} label="Admin Panel" color="border-indigo-500" bg="bg-gradient-to-br from-indigo-600 to-blue-400" onClick={() => setActiveTab('admin')} />
+        )}
         <MenuCard icon={<UserIcon size={28} />} label="Edit Profil" color="border-purple-500" bg="bg-gradient-to-br from-purple-600 to-pink-400" onClick={() => setActiveTab('profil')} />
         <MenuCard icon={<LogOut size={28} />} label="Keluar Akun" color="border-slate-500" bg="bg-gradient-to-br from-slate-600 to-slate-400" onClick={handleLogout} />
       </div>
@@ -937,7 +973,7 @@ function NavItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
   );
 }
 
-function RadarHama({ reports, user, refresh }: { reports: Report[], user: User, refresh: () => void }) {
+function RadarHama({ reports, user, refresh, exportCSV }: { reports: Report[], user: User, refresh: () => void, exportCSV: (data: any[], name: string) => void }) {
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState({ status: 'Semua', hama: 'Semua' });
   const [formData, setFormData] = useState({
@@ -1183,12 +1219,23 @@ function RadarHama({ reports, user, refresh }: { reports: Report[], user: User, 
           <h5 className="font-black text-slate-900 uppercase tracking-tight mb-0 flex items-center gap-2">
             <MapPin size={18} className="text-red-500" /> Peta Persebaran Hama
           </h5>
-          <button 
-            onClick={() => setShowForm(true)}
-            className="bg-emerald-600 text-white px-6 py-2 rounded-full text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-200 hover:scale-105 transition-all"
-          >
-            Lapor
-          </button>
+          <div className="flex gap-2">
+            {(user.role === 'admin' || user.role === 'petugas') && (
+              <button 
+                onClick={() => exportCSV(reports, 'Laporan_Radar_Hama')}
+                className="bg-slate-100 text-slate-700 px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest hover:bg-white transition-all border border-slate-200 flex items-center gap-2"
+                title="Ekspor CSV"
+              >
+                <Download size={16} /> <span className="hidden sm:inline">Ekspor</span>
+              </button>
+            )}
+            <button 
+              onClick={() => setShowForm(true)}
+              className="bg-emerald-600 text-white px-6 py-2 rounded-full text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-200 hover:scale-105 transition-all"
+            >
+              Lapor
+            </button>
+          </div>
         </div>
         <div className="h-[480px] relative z-0">
           <div className="absolute top-5 left-5 z-[500] flex flex-col gap-2">
@@ -1452,7 +1499,7 @@ function RadarHama({ reports, user, refresh }: { reports: Report[], user: User, 
   );
 }
 
-function PasarTani({ products, user, refresh }: { products: Product[], user: User, refresh: () => void }) {
+function PasarTani({ products, user, refresh, exportCSV }: { products: Product[], user: User, refresh: () => void, exportCSV: (data: any[], name: string) => void }) {
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     product_name: '',
@@ -1494,13 +1541,14 @@ function PasarTani({ products, user, refresh }: { products: Product[], user: Use
       <div className="flex justify-between items-center">
         <h3 className="text-xl font-bold text-slate-800">Produk Pertanian</h3>
         <div className="flex gap-2">
-          <button 
-            onClick={() => exportToCSV(products, 'produk_pasar_tani.csv')}
-            className="bg-white text-slate-600 px-4 py-2 rounded-xl flex items-center gap-2 font-semibold shadow-md border border-slate-100 hover:bg-slate-50 transition-all"
-          >
-            <Download size={18} />
-            <span className="hidden sm:inline">Export CSV</span>
-          </button>
+          {(user.role === 'admin' || user.role === 'petugas') && (
+            <button 
+              onClick={() => exportCSV(products, 'Data_Pasar_Tani')}
+              className="glass text-slate-700 px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-black uppercase tracking-widest hover:bg-white transition-all"
+            >
+              <Download size={16} /> <span className="hidden sm:inline">Ekspor</span>
+            </button>
+          )}
           <button 
             onClick={() => setShowForm(true)}
             className="glass-emerald text-white px-4 py-2 rounded-xl flex items-center gap-2 font-semibold shadow-lg shadow-emerald-100"
@@ -1595,7 +1643,7 @@ function PasarTani({ products, user, refresh }: { products: Product[], user: Use
   );
 }
 
-function KalkulatorTani({ farms, user, refresh }: { farms: Farm[], user: User, refresh: () => void }) {
+function KalkulatorTani({ farms, user, refresh, exportCSV }: { farms: Farm[], user: User, refresh: () => void, exportCSV: (data: any[], name: string) => void }) {
   const [showForm, setShowForm] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState<'lahan' | 'keuangan'>('lahan');
   const [expandedFarmId, setExpandedFarmId] = useState<number | null>(null);
@@ -1729,6 +1777,14 @@ function KalkulatorTani({ farms, user, refresh }: { farms: Farm[], user: User, r
             Laporan Keuangan
           </button>
         </div>
+        {(user.role === 'admin' || user.role === 'petugas') && (
+          <button 
+            onClick={() => exportCSV(farms, 'Data_Kalkulator_Tani')}
+            className="glass text-slate-700 px-4 py-2 rounded-xl flex items-center gap-2 text-xs font-black uppercase tracking-widest hover:bg-white transition-all shadow-sm border border-slate-100"
+          >
+            <Download size={16} /> <span className="hidden sm:inline">Ekspor CSV</span>
+          </button>
+        )}
         
         {activeSubTab === 'lahan' ? (
           <button 
@@ -2510,28 +2566,39 @@ function KelasTani({ user }: { user: User }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeCategory, setActiveCategory] = useState('semua');
   const [showAddModal, setShowAddModal] = useState(false);
-  const [articles, setArticles] = useState([
-    { id: 1, title: "Teknik Budidaya Padi Organik", category: "pertanian", image: "https://picsum.photos/seed/padi/800/400", content: "Pelajari teknik budidaya padi organik untuk hasil yang lebih sehat dan ramah lingkungan.", video_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
-    { id: 2, title: "Manajemen Hama Terpadu", category: "hama", image: "https://picsum.photos/seed/hama/800/400", content: "Strategi pengendalian hama yang efektif tanpa merusak ekosistem lahan pertanian Anda.", video_url: "" },
-    { id: 3, title: "Pemanfaatan Pupuk Cair", category: "pertanian", image: "https://picsum.photos/seed/pupuk/800/400", content: "Cara membuat dan mengaplikasikan pupuk organik cair untuk nutrisi tanaman yang optimal.", video_url: "" },
-    { id: 4, title: "Budidaya Kopi Robusta", category: "perkebunan", image: "https://picsum.photos/seed/kopi/800/400", content: "Panduan lengkap budidaya kopi robusta dari pembibitan hingga masa panen.", video_url: "" },
-    { id: 5, title: "Penanganan Pasca Panen", category: "pasca", image: "https://picsum.photos/seed/panen/800/400", content: "Teknik penyimpanan dan pengolahan hasil panen untuk menjaga kualitas dan harga jual.", video_url: "" },
-  ]);
+  const [articles, setArticles] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [newArticle, setNewArticle] = useState({
     title: '',
-    category: 'pertanian',
+    category: 'Pertanian',
     content: '',
     video_url: '',
     image: 'https://picsum.photos/seed/new/800/400'
   });
 
+  const fetchArticles = async () => {
+    try {
+      const res = await fetch('/api/articles');
+      const data = await res.json();
+      setArticles(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchArticles();
+  }, []);
+
   const categories = [
     { id: 'semua', label: 'Semua' },
-    { id: 'pertanian', label: 'Pertanian' },
-    { id: 'perkebunan', label: 'Perkebunan' },
-    { id: 'hama', label: 'Pengendalian Hama' },
-    { id: 'pasca', label: 'Pasca Panen' },
+    { id: 'Pertanian', label: 'Pertanian' },
+    { id: 'Perkebunan', label: 'Perkebunan' },
+    { id: 'Hama', label: 'Pengendalian Hama' },
+    { id: 'Pasca', label: 'Pasca Panen' },
   ];
 
   const filteredArticles = articles.filter(article => {
@@ -2540,23 +2607,27 @@ function KelasTani({ user }: { user: User }) {
     return matchesSearch && matchesCategory;
   });
 
-  const handleAddArticle = (e: React.FormEvent) => {
+  const handleAddArticle = async (e: React.FormEvent) => {
     e.preventDefault();
-    const id = articles.length + 1;
-    setArticles([...articles, { ...newArticle, id }]);
-    setShowAddModal(false);
-    setNewArticle({
-      title: '',
-      category: 'pertanian',
-      content: '',
-      video_url: '',
-      image: 'https://picsum.photos/seed/new/800/400'
-    });
-  };
-
-  const handleDeleteArticle = (id: number) => {
-    if (window.confirm('Hapus materi ini?')) {
-      setArticles(articles.filter(a => a.id !== id));
+    try {
+      const res = await fetch('/api/articles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newArticle)
+      });
+      if (res.ok) {
+        setShowAddModal(false);
+        setNewArticle({
+          title: '',
+          category: 'Pertanian',
+          content: '',
+          video_url: '',
+          image: 'https://picsum.photos/seed/new/800/400'
+        });
+        fetchArticles();
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -2584,15 +2655,25 @@ function KelasTani({ user }: { user: User }) {
 
       {/* Search & Filter */}
       <div className="space-y-6">
-        <div className="glass flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-lg">
-          <Search className="text-slate-400" size={20} />
-          <input 
-            type="text" 
-            placeholder="Cari materi pembelajaran..." 
-            className="bg-transparent border-none outline-none w-full text-slate-700 placeholder:text-slate-400 font-medium"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        <div className="flex justify-between items-center">
+          <div className="glass flex-1 flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-lg mr-4">
+            <Search className="text-slate-400" size={20} />
+            <input 
+              type="text" 
+              placeholder="Cari materi pembelajaran..." 
+              className="bg-transparent border-none outline-none w-full text-slate-700 placeholder:text-slate-400 font-medium"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          {user.role === 'admin' && (
+            <button 
+              onClick={() => setShowAddModal(true)}
+              className="glass-emerald text-white p-4 rounded-2xl shadow-xl hover:scale-105 transition-all"
+            >
+              <Plus size={24} />
+            </button>
+          )}
         </div>
 
         <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
@@ -2615,25 +2696,22 @@ function KelasTani({ user }: { user: User }) {
 
       {/* Article Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {filteredArticles.map(article => (
-          <Card key={article.id} className="group flex flex-col h-full hover:shadow-2xl transition-all duration-500 border-none">
+        {loading ? (
+          <div className="col-span-full py-20 text-center">
+            <div className="animate-spin w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full mx-auto mb-4" />
+            <p className="text-white font-bold">Memuat materi...</p>
+          </div>
+        ) : filteredArticles.map(article => (
+          <Card key={article.id} className="group flex flex-col h-full hover:shadow-2xl transition-all duration-500 border-none overflow-hidden glass-card">
             <div className="relative h-52 overflow-hidden">
               <img 
-                src={article.image} 
+                src={article.image || 'https://images.unsplash.com/photo-1530507629858-e4977d30e9e0?w=800'} 
                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                 onError={(e) => { (e.target as HTMLImageElement).src = 'https://cdn-icons-png.flaticon.com/512/3074/3074086.png' }}
               />
               <div className="absolute top-4 left-4 glass-emerald text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest shadow-lg">
                 {article.category}
               </div>
-              {user.role === 'admin' && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); handleDeleteArticle(article.id); }}
-                  className="absolute top-4 right-4 p-2 bg-red-500/80 backdrop-blur-sm text-white rounded-xl hover:bg-red-600 transition-all shadow-lg"
-                >
-                  <Trash2 size={16} />
-                </button>
-              )}
             </div>
             <div className="p-6 flex flex-col flex-1">
               <h4 className="text-xl font-extrabold text-slate-900 mb-2 leading-tight group-hover:text-emerald-600 transition-colors">{article.title}</h4>
@@ -2654,67 +2732,126 @@ function KelasTani({ user }: { user: User }) {
         ))}
       </div>
 
-      {/* Admin Add Button */}
-      {user.role === 'admin' && (
-        <button 
-          onClick={() => setShowAddModal(true)}
-          className="fixed bottom-8 right-8 w-16 h-16 glass-emerald text-white rounded-full flex items-center justify-center shadow-2xl hover:scale-110 hover:rotate-90 transition-all z-50"
-        >
-          <Plus size={32} />
-        </button>
-      )}
-
-      {/* Add Article Modal */}
-      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Tambah Materi Baru">
-        <form onSubmit={handleAddArticle} className="space-y-5">
+      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Tambah Materi Edukasi">
+        <form onSubmit={handleAddArticle} className="space-y-4">
           <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">Judul Materi</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Judul Materi</label>
             <input 
-              type="text" required placeholder="Contoh: Teknik Budidaya Padi"
-              className="w-full px-5 py-3 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+              type="text" required
+              className="w-full px-5 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all font-bold text-slate-700"
               value={newArticle.title}
               onChange={e => setNewArticle({...newArticle, title: e.target.value})}
             />
           </div>
           <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">Kategori</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Kategori</label>
             <select 
-              className="w-full px-5 py-3 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+              className="w-full px-5 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all font-bold text-slate-700"
               value={newArticle.category}
               onChange={e => setNewArticle({...newArticle, category: e.target.value})}
             >
-              <option value="pertanian">Pertanian</option>
-              <option value="perkebunan">Perkebunan</option>
-              <option value="hama">Pengendalian Hama</option>
-              <option value="pasca">Pasca Panen</option>
+              {categories.slice(1).map(c => <option key={c.id} value={c.label}>{c.label}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">Konten</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Konten Singkat</label>
             <textarea 
-              required rows={4} placeholder="Isi materi pembelajaran..."
-              className="w-full px-5 py-3 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none resize-none transition-all"
+              required rows={3}
+              className="w-full px-5 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none resize-none transition-all font-bold text-slate-700"
               value={newArticle.content}
               onChange={e => setNewArticle({...newArticle, content: e.target.value})}
             />
           </div>
           <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">URL Video (opsional)</label>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">URL Video (Opsional)</label>
             <input 
-              type="url" placeholder="https://youtube.com/..."
-              className="w-full px-5 py-3 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+              type="url"
+              className="w-full px-5 py-3 rounded-2xl bg-slate-50 border border-slate-100 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all font-bold text-slate-700"
               value={newArticle.video_url}
               onChange={e => setNewArticle({...newArticle, video_url: e.target.value})}
             />
           </div>
           <button 
-            type="submit"
-            className="w-full glass-emerald text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-emerald-200/50 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            className="w-full glass-emerald text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-emerald-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
           >
-            Tambah Materi
+            Simpan Materi
           </button>
         </form>
       </Modal>
+    </div>
+  );
+}
+
+function AdminPanel({ user }: { user: User }) {
+  const [pendingUsers, setPendingUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchPending = async () => {
+    try {
+      const res = await fetch('/api/admin/pending-users');
+      const data = await res.json();
+      setPendingUsers(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPending();
+  }, []);
+
+  const approveUser = async (id: number) => {
+    try {
+      const res = await fetch(`/api/admin/approve-user/${id}`, { method: 'POST' });
+      if (res.ok) fetchPending();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  return (
+    <div className="max-w-md mx-auto pb-20">
+      <div className="text-center py-10">
+        <div className="w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-3xl flex items-center justify-center text-4xl shadow-2xl shadow-indigo-500/30 mx-auto mb-6 text-white">
+          <ShieldCheck size={40} />
+        </div>
+        <h2 className="text-2xl font-black text-white drop-shadow-md">Admin Panel</h2>
+        <p className="text-white/80 text-sm font-medium">Persetujuan pendaftaran admin baru</p>
+      </div>
+
+      <div className="px-6 space-y-4">
+        <h3 className="text-white font-black uppercase tracking-widest text-xs mb-4">Menunggu Persetujuan</h3>
+        {loading ? (
+          <div className="text-center py-10">
+            <Loader2 className="animate-spin text-white mx-auto" />
+          </div>
+        ) : pendingUsers.length === 0 ? (
+          <div className="text-center py-10 bg-white/5 rounded-3xl border border-white/10">
+            <p className="text-white/50 font-bold text-sm">Tidak ada pendaftaran tertunda</p>
+          </div>
+        ) : (
+          pendingUsers.map(u => (
+            <Card key={u.id} className="p-5 bg-white/95 backdrop-blur-2xl border-white/60 shadow-2xl">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h4 className="font-black text-slate-900 text-base leading-tight">{u.fullname}</h4>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                    @{u.username} • {u.role}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => approveUser(u.id)}
+                  className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:scale-105 transition-all"
+                >
+                  Setujui
+                </button>
+              </div>
+            </Card>
+          ))
+        )}
+      </div>
     </div>
   );
 }
