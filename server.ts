@@ -2,580 +2,351 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import { createServer as createHttpServer } from "http";
 import { Server } from "socket.io";
-import Database from "better-sqlite3";
+import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
 import cors from "cors";
 import morgan from "morgan";
+import { v2 as cloudinary } from "cloudinary";
+import { CloudinaryStorage } from "multer-storage-cloudinary";
+import dotenv from "dotenv";
 
-const db = new Database("sinartani.db");
+dotenv.config(); // Memuat variabel dari file .env
 
-// Initialize Database
-function initDB() {
-  // Create tables
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      fullname TEXT NOT NULL,
-      username TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      role TEXT DEFAULT 'petani',
-      photo TEXT,
-      bio TEXT,
-      phone TEXT,
-      preferred_crops TEXT,
-      farming_practices TEXT,
-      is_approved INTEGER DEFAULT 1,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+// --- MONGODB CONNECTION & SCHEMAS ---
+const MONGODB_URI = "mongodb+srv://zidniganz:xNElZEnUUOu0BXHG@cluster0.qaovn.mongodb.net/sinartani?retryWrites=true&w=majority&appName=Cluster0";
 
-    CREATE TABLE IF NOT EXISTS reports (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
-      desa TEXT,
-      kec TEXT,
-      hama TEXT,
-      status TEXT,
-      lat REAL,
-      lon REAL,
-      foto TEXT,
-      is_verified INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(user_id) REFERENCES users(id)
-    );
+mongoose.connect(MONGODB_URI)
+  .then(() => console.log("✅ Terhubung ke MongoDB"))
+  .catch(err => console.error("❌ Gagal terhubung ke MongoDB:", err));
 
-    CREATE TABLE IF NOT EXISTS products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
-      product_name TEXT,
-      price REAL,
-      description TEXT,
-      seller_phone TEXT,
-      photo TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(user_id) REFERENCES users(id)
-    );
+// Opsi virtual id agar _id di-map menjadi id untuk frontend
+const schemaOptions = { 
+  timestamps: { createdAt: 'created_at', updatedAt: false },
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
+};
 
-    CREATE TABLE IF NOT EXISTS articles (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT,
-      category TEXT,
-      content TEXT,
-      video_url TEXT,
-      image TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+const User = mongoose.model("User", new mongoose.Schema({
+  fullname: { type: String, required: true },
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  role: { type: String, default: 'petani' },
+  photo: String,
+  bio: String,
+  phone: String,
+  preferred_crops: String,
+  farming_practices: String,
+  is_approved: { type: Number, default: 1 },
+}, schemaOptions));
 
-    CREATE TABLE IF NOT EXISTS farms (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
-      name TEXT,
-      commodity TEXT,
-      variety TEXT,
-      area REAL,
-      modal_awal REAL,
-      planting_date DATE,
-      estimated_harvest_date DATE,
-      total_pendapatan REAL DEFAULT 0,
-      status TEXT DEFAULT 'aktif',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(user_id) REFERENCES users(id)
-    );
+const Report = mongoose.model("Report", new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  desa: String,
+  kec: String,
+  hama: String,
+  status: String,
+  lat: Number,
+  lon: Number,
+  foto: String,
+  is_verified: { type: Number, default: 0 },
+}, schemaOptions));
 
-    CREATE TABLE IF NOT EXISTS expenses (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      farm_id INTEGER,
-      category TEXT,
-      item_name TEXT,
-      quantity REAL,
-      unit TEXT,
-      price_per_unit REAL,
-      date DATE,
-      notes TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(farm_id) REFERENCES farms(id)
-    );
+const Product = mongoose.model("Product", new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  product_name: String,
+  price: Number,
+  description: String,
+  seller_phone: String,
+  photo: String,
+}, schemaOptions));
 
-    CREATE TABLE IF NOT EXISTS schedules (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      farm_id INTEGER,
-      type TEXT,
-      title TEXT,
-      date DATE,
-      time TEXT,
-      description TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(farm_id) REFERENCES farms(id)
-    );
+const Article = mongoose.model("Article", new mongoose.Schema({
+  title: String,
+  category: String,
+  content: String,
+  video_url: String,
+  image: String,
+}, schemaOptions));
 
-    CREATE TABLE IF NOT EXISTS bantuan_proposals (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
-      type TEXT,
-      amount TEXT,
-      reason TEXT,
-      status TEXT DEFAULT 'Menunggu',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(user_id) REFERENCES users(id)
-    );
+const Farm = mongoose.model("Farm", new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  name: String,
+  commodity: String,
+  variety: String,
+  area: Number,
+  modal_awal: Number,
+  planting_date: Date,
+  estimated_harvest_date: Date,
+  total_pendapatan: { type: Number, default: 0 },
+  status: { type: String, default: 'aktif' },
+}, schemaOptions));
 
-    CREATE TABLE IF NOT EXISTS tasks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      officer_id INTEGER,
-      title TEXT NOT NULL,
-      description TEXT,
-      status TEXT DEFAULT 'Pending',
-      due_date DATE,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(officer_id) REFERENCES users(id)
-    );
-  `);
+const BantuanProposal = mongoose.model("BantuanProposal", new mongoose.Schema({
+  user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  type: String,
+  amount: String,
+  reason: String,
+  status: { type: String, default: 'Menunggu' },
+}, schemaOptions));
 
-  // Migrate existing users table if needed
-  try {
-    db.exec("ALTER TABLE users ADD COLUMN preferred_crops TEXT");
-  } catch (e) {}
-  try {
-    db.exec("ALTER TABLE users ADD COLUMN farming_practices TEXT");
-  } catch (e) {}
-  try {
-    db.exec("ALTER TABLE users ADD COLUMN is_approved INTEGER DEFAULT 1");
-  } catch (e) {}
+const Task = mongoose.model("Task", new mongoose.Schema({
+  officer_id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  title: { type: String, required: true },
+  description: String,
+  status: { type: String, default: 'Pending' },
+  due_date: Date,
+}, schemaOptions));
 
-  // Seed Dummy Data if empty
-  const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get() as any;
-  if (userCount.count === 0 || (userCount.count <= 2)) {
-    // Default admin and officer are handled below, but let's add some farmers
+// --- SEEDING DATA ---
+async function initDB() {
+  const userCount = await User.countDocuments();
+  if (userCount === 0) {
     const hashedPass = bcrypt.hashSync("petani123", 10);
-    db.prepare("INSERT INTO users (fullname, username, password, role, is_approved) VALUES (?, ?, ?, ?, ?)").run(
-      "Budi Setiawan", "budi", hashedPass, "petani", 1
-    );
-    db.prepare("INSERT INTO users (fullname, username, password, role, is_approved) VALUES (?, ?, ?, ?, ?)").run(
-      "Siti Aminah", "siti", hashedPass, "petani", 1
-    );
-  }
+    const petani1 = await User.create({ fullname: "Budi Setiawan", username: "budi", password: hashedPass, role: "petani", is_approved: 1 });
+    const petani2 = await User.create({ fullname: "Siti Aminah", username: "siti", password: hashedPass, role: "petani", is_approved: 1 });
+    
+    const hashedAdmin = bcrypt.hashSync("admin123", 10);
+    await User.create({ fullname: "Administrator Sinar Tani", username: "admin", password: hashedAdmin, role: "admin", is_approved: 1 });
+    
+    const hashedOfficer = bcrypt.hashSync("petugas123", 10);
+    await User.create({ fullname: "Petugas Lapangan", username: "petugas", password: hashedOfficer, role: "petugas", is_approved: 1 });
 
-  const articleCount = db.prepare("SELECT COUNT(*) as count FROM articles").get() as any;
-  if (articleCount.count === 0) {
-    db.prepare("INSERT INTO articles (title, category, content, image) VALUES (?, ?, ?, ?)").run(
-      "Teknik Menanam Padi Organik", "Budidaya", "Langkah-langkah menanam padi tanpa pestisida kimia...", "https://images.unsplash.com/photo-1530507629858-e4977d30e9e0?w=800"
-    );
-    db.prepare("INSERT INTO articles (title, category, content, image) VALUES (?, ?, ?, ?)").run(
-      "Mengenal Hama Wereng Batang Cokelat", "Hama", "Wereng batang cokelat adalah salah satu hama utama padi...", "https://images.unsplash.com/photo-1590682680695-43b964a3ae17?w=800"
-    );
-    db.prepare("INSERT INTO articles (title, category, content, image) VALUES (?, ?, ?, ?)").run(
-      "Manajemen Air Sawah yang Efisien", "Teknis", "Cara mengatur irigasi agar tanaman tumbuh optimal...", "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800"
-    );
-  }
+    const articleCount = await Article.countDocuments();
+    if (articleCount === 0) {
+      await Article.create([
+        { title: "Teknik Menanam Padi Organik", category: "Budidaya", content: "Langkah-langkah menanam padi tanpa pestisida kimia...", image: "https://images.unsplash.com/photo-1530507629858-e4977d30e9e0?w=800" },
+        { title: "Mengenal Hama Wereng Batang Cokelat", category: "Hama", content: "Wereng batang cokelat adalah salah satu hama utama padi...", image: "https://images.unsplash.com/photo-1590682680695-43b964a3ae17?w=800" },
+        { title: "Manajemen Air Sawah yang Efisien", category: "Teknis", content: "Cara mengatur irigasi agar tanaman tumbuh optimal...", image: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=800" }
+      ]);
+    }
 
-  const reportCount = db.prepare("SELECT COUNT(*) as count FROM reports").get() as any;
-  if (reportCount.count === 0) {
-    db.prepare("INSERT INTO reports (user_id, desa, kec, hama, status, lat, lon) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-      1, "Desa Karanganyar", "Kec. Kebumen", "Tikus", "Waspada", -7.67, 109.65
-    );
-    db.prepare("INSERT INTO reports (user_id, desa, kec, hama, status, lat, lon) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-      1, "Desa Panjer", "Kec. Kebumen", "Wereng", "Bahaya", -7.68, 109.66
-    );
-  }
-
-  // Create or update default admin and officer
-  const admin = db.prepare("SELECT * FROM users WHERE username = ?").get("admin") as any;
-  const hashedAdmin = bcrypt.hashSync("admin123", 10);
-  if (!admin) {
-    db.prepare("INSERT INTO users (fullname, username, password, role, is_approved) VALUES (?, ?, ?, ?, ?)").run(
-      "Administrator Sinar Tani",
-      "admin",
-      hashedAdmin,
-      "admin",
-      1
-    );
-    console.log("Default admin created.");
-  }
-
-  const officer = db.prepare("SELECT * FROM users WHERE username = ?").get("petugas") as any;
-  const hashedOfficer = bcrypt.hashSync("petugas123", 10);
-  if (!officer) {
-    db.prepare("INSERT INTO users (fullname, username, password, role) VALUES (?, ?, ?, ?)").run(
-      "Petugas Lapangan",
-      "petugas",
-      hashedOfficer,
-      "petugas"
-    );
-    console.log("Default officer created.");
+    const reportCount = await Report.countDocuments();
+    if (reportCount === 0) {
+      await Report.create([
+        { user_id: petani1._id, desa: "Desa Karanganyar", kec: "Kec. Kebumen", hama: "Tikus", status: "Waspada", lat: -7.67, lon: 109.65 },
+        { user_id: petani1._id, desa: "Desa Panjer", kec: "Kec. Kebumen", hama: "Wereng", status: "Bahaya", lat: -7.68, lon: 109.66 }
+      ]);
+    }
+    console.log("✅ Dummy data seeded");
   }
 }
-
 initDB();
 
-async function startServer() {
-  const app = express();
-  const httpServer = createHttpServer(app);
-  const io = new Server(httpServer, {
-    cors: {
-      origin: "*",
-      methods: ["GET", "POST"]
-    }
-  });
-  const PORT = 3000;
+const app = express();
+const httpServer = createHttpServer(app);
+const io = new Server(httpServer, { cors: { origin: "*", methods: ["GET", "POST"] } });
 
-  io.on("connection", (socket) => {
-    console.log("A user connected:", socket.id);
-    socket.on("disconnect", () => {
-      console.log("User disconnected:", socket.id);
-    });
-  });
+io.on("connection", (socket) => {
+  console.log("A user connected:", socket.id);
+  socket.on("disconnect", () => console.log("User disconnected:", socket.id));
+});
 
-  app.use(cors());
-  app.use(morgan("dev"));
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+app.use(cors());
+app.use(morgan("dev"));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-  // Multer setup
-  const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-      const dir = "public/uploads";
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      cb(null, dir);
-    },
-    filename: (req, file, cb) => {
-      cb(null, Date.now() + path.extname(file.originalname));
-    },
-  });
-  const upload = multer({ storage });
+// Vercel /tmp limitation for multer
+// --- KONFIGURASI CLOUDINARY ---
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
-  // --- API ROUTES ---
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "sinartani-uploads", // Nama folder yang akan otomatis terbuat di Cloudinary
+    allowed_formats: ["jpg", "jpeg", "png", "webp"],
+  } as any,
+});
 
-  // Auth
-  app.post("/api/login", (req, res) => {
-    const { username, password } = req.body;
-    console.log(`Login attempt for username: ${username}`);
-    
-    const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username) as any;
-    
-    if (!user) {
-      console.log(`User not found: ${username}`);
-      return res.status(401).json({ error: "Username atau password salah" });
-    }
+const upload = multer({ storage });
 
-    if (user.is_approved === 0) {
-      return res.status(403).json({ error: "Akun Anda sedang menunggu persetujuan administrator" });
-    }
+// --- API ROUTES ---
+app.post("/api/login", async (req, res) => {
+  const { username, password } = req.body;
+  const user = await User.findOne({ username });
+  
+  if (!user || user.is_approved === 0) return res.status(401).json({ error: "Akun tidak valid atau belum disetujui" });
 
-    console.log(`User found. Comparing passwords...`);
-    try {
-      const match = bcrypt.compareSync(password, user.password);
-      console.log(`Password match result: ${match}`);
-      
-      if (!match) {
-        return res.status(401).json({ error: "Username atau password salah" });
-      }
+  const match = await bcrypt.compare(password, user.password);
+  if (!match) return res.status(401).json({ error: "Username atau password salah" });
 
-      const { password: _, ...userWithoutPassword } = user;
-      res.json(userWithoutPassword);
-    } catch (err) {
-      console.error("Bcrypt comparison error:", err);
-      res.status(500).json({ error: "Terjadi kesalahan pada server" });
-    }
-  });
+  const userObj = user.toObject();
+  delete userObj.password;
+  res.json(userObj);
+});
 
-  app.post("/api/register", (req, res) => {
-    const { fullname, username, password, role = 'petani' } = req.body;
-    try {
-      const isApproved = role === 'admin' ? 0 : 1;
-      const hashed = bcrypt.hashSync(password, 10);
-      db.prepare("INSERT INTO users (fullname, username, password, role, is_approved) VALUES (?, ?, ?, ?, ?)").run(
-        fullname,
-        username,
-        hashed,
-        role,
-        isApproved
-      );
-      res.json({ success: true, message: role === 'admin' ? "Pendaftaran berhasil. Menunggu persetujuan admin." : "Pendaftaran berhasil." });
-    } catch (err) {
-      res.status(400).json({ error: "Username sudah digunakan" });
-    }
-  });
-
-  // Admin approval routes
-  app.get("/api/admin/pending-users", (req, res) => {
-    const users = db.prepare("SELECT id, fullname, username, role, created_at FROM users WHERE is_approved = 0").all();
-    res.json(users);
-  });
-
-  app.post("/api/admin/approve-user/:id", (req, res) => {
-    const { id } = req.params;
-    db.prepare("UPDATE users SET is_approved = 1 WHERE id = ?").run(id);
-    res.json({ success: true });
-  });
-
-  app.get("/api/articles", (req, res) => {
-    const articles = db.prepare("SELECT * FROM articles ORDER BY created_at DESC").all();
-    res.json(articles);
-  });
-
-  // Profile
-  app.patch("/api/profile/:id", (req, res) => {
-    const { id } = req.params;
-    const { fullname, phone, bio, preferred_crops, farming_practices } = req.body;
-    
-    try {
-      db.prepare(`
-        UPDATE users 
-        SET fullname = ?, phone = ?, bio = ?, preferred_crops = ?, farming_practices = ? 
-        WHERE id = ?
-      `).run(fullname, phone, bio, preferred_crops, farming_practices, id);
-      
-      const updatedUser = db.prepare("SELECT id, fullname, username, role, photo, bio, phone, preferred_crops, farming_practices FROM users WHERE id = ?").get(id);
-      res.json(updatedUser);
-    } catch (err) {
-      console.error("Profile update error:", err);
-      res.status(500).json({ error: "Gagal memperbarui profil" });
-    }
-  });
-
-  // Reports (Radar Hama)
-  app.get("/api/reports", (req, res) => {
-    const reports = db.prepare(`
-      SELECT r.*, u.fullname as user_name 
-      FROM reports r 
-      JOIN users u ON r.user_id = u.id 
-      ORDER BY r.created_at DESC
-    `).all();
-    res.json(reports);
-  });
-
-  app.post("/api/reports", upload.single("foto"), (req: any, res) => {
-    const { user_id, desa, kec, hama, status, lat, lon } = req.body;
-    const foto = req.file ? "/uploads/" + req.file.filename : null;
-    const result = db.prepare(`
-      INSERT INTO reports (user_id, desa, kec, hama, status, lat, lon, foto) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(user_id, desa, kec, hama, status, lat, lon, foto);
-
-    if (status === 'Bahaya') {
-      io.emit("notification", {
-        id: Date.now().toString(),
-        title: "Radar Hama: BAHAYA!",
-        message: `Laporan hama ${hama} di Desa ${desa}, Kec. ${kec} berstatus BAHAYA.`,
-        type: "danger",
-        created_at: new Date().toISOString(),
-        read: false
-      });
-    }
-
-    io.emit("data_updated", { type: "reports" });
-
-    res.json({ success: true, id: result.lastInsertRowid });
-  });
-
-  // Add endpoint to verify report (for petugas/admin)
-  app.patch("/api/reports/:id/verify", (req, res) => {
-    const { id } = req.params;
-    const { user_role } = req.body; // In a real app, this would be from a session/token
-
-    if (user_role !== 'petugas' && user_role !== 'admin') {
-      return res.status(403).json({ error: "Akses ditolak" });
-    }
-
-    db.prepare("UPDATE reports SET is_verified = 1 WHERE id = ?").run(id);
-    
-    io.emit("data_updated", { type: "reports" });
-    
-    res.json({ success: true });
-  });
-
-  // Pasar Tani
-  app.get("/api/products", (req, res) => {
-    const products = db.prepare(`
-      SELECT p.*, u.fullname as seller_name 
-      FROM products p 
-      JOIN users u ON p.user_id = u.id 
-      ORDER BY p.created_at DESC
-    `).all();
-    res.json(products);
-  });
-
-  app.post("/api/products", upload.single("photo"), (req: any, res) => {
-    const { user_id, product_name, price, description, seller_phone } = req.body;
-    const photo = req.file ? "/uploads/" + req.file.filename : null;
-    db.prepare(`
-      INSERT INTO products (user_id, product_name, price, description, seller_phone, photo) 
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(user_id, product_name, price, description, seller_phone, photo);
-    
-    io.emit("data_updated", { type: "products" });
-    
-    res.json({ success: true });
-  });
-
-  // Kalkulator Tani
-  app.get("/api/farms/:userId", (req, res) => {
-    const farms = db.prepare("SELECT * FROM farms WHERE user_id = ?").all(req.params.userId);
-    res.json(farms);
-  });
-
-  app.post("/api/farms", (req, res) => {
-    const { user_id, name, commodity, variety, area, modal_awal, planting_date, duration } = req.body;
-    const planting = new Date(planting_date);
-    const harvest = new Date(planting);
-    harvest.setDate(planting.getDate() + parseInt(duration));
-    const estimated_harvest_date = harvest.toISOString().split("T")[0];
-    
-    db.prepare(`
-      INSERT INTO farms (user_id, name, commodity, variety, area, modal_awal, planting_date, estimated_harvest_date) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(user_id, name, commodity, variety, area, modal_awal, planting_date, estimated_harvest_date);
-    
-    io.emit("data_updated", { type: "farms", user_id });
-    
-    res.json({ success: true });
-  });
-
-  // Bantuan
-  app.get("/api/bantuan/:userId", (req, res) => {
-    const proposals = db.prepare("SELECT * FROM bantuan_proposals WHERE user_id = ?").all(req.params.userId);
-    res.json(proposals);
-  });
-
-  app.post("/api/bantuan", (req, res) => {
-    const { user_id, type, amount, reason } = req.body;
-    db.prepare(`
-      INSERT INTO bantuan_proposals (user_id, type, amount, reason) 
-      VALUES (?, ?, ?, ?)
-    `).run(user_id, type, amount, reason);
-    
-    // Notify admins about new proposal
-    io.emit("notification", {
-      id: Date.now().toString(),
-      title: "Pengajuan Bantuan Baru",
-      message: `Ada pengajuan bantuan baru tipe ${type} sebesar ${amount}.`,
-      type: "info",
-      created_at: new Date().toISOString(),
-      read: false
-    });
-
-    io.emit("data_updated", { type: "bantuan", user_id });
-
-    res.json({ success: true });
-  });
-
-  // Add endpoint to update proposal status (for admin)
-  app.patch("/api/bantuan/:id", (req, res) => {
-    const { status } = req.body;
-    const { id } = req.params;
-    
-    const proposal = db.prepare("SELECT * FROM bantuan_proposals WHERE id = ?").get(id) as any;
-    if (!proposal) return res.status(404).json({ error: "Proposal tidak ditemukan" });
-
-    db.prepare("UPDATE bantuan_proposals SET status = ? WHERE id = ?").run(status, id);
-
-    // Notify the specific user
-    io.emit("notification", {
-      id: Date.now().toString(),
-      title: "Update Status Bantuan",
-      message: `Pengajuan bantuan Anda (${proposal.type}) telah ${status.toLowerCase()}.`,
-      type: status === 'Disetujui' ? 'success' : 'warning',
-      created_at: new Date().toISOString(),
-      read: false,
-      target_user_id: proposal.user_id // Frontend can filter this
-    });
-
-    io.emit("data_updated", { type: "bantuan", user_id: proposal.user_id });
-
-    res.json({ success: true });
-  });
-
-  // Add endpoint for articles (to demonstrate new content notification)
-  app.post("/api/articles", upload.single("image"), (req: any, res) => {
-    const { title, category, content, video_url } = req.body;
-    const image = req.file ? "/uploads/" + req.file.filename : null;
-    
-    db.prepare(`
-      INSERT INTO articles (title, category, content, video_url, image) 
-      VALUES (?, ?, ?, ?, ?)
-    `).run(title, category, content, video_url, image);
-
-    io.emit("notification", {
-      id: Date.now().toString(),
-      title: "Edukasi Tani Baru",
-      message: `Artikel baru diterbitkan: ${title}`,
-      type: "info",
-      created_at: new Date().toISOString(),
-      read: false
-    });
-
-    res.json({ success: true });
-  });
-
-  // Tasks
-  app.get("/api/tasks/:officerId", (req, res) => {
-    const tasks = db.prepare("SELECT * FROM tasks WHERE officer_id = ? ORDER BY created_at DESC").all(req.params.officerId);
-    res.json(tasks);
-  });
-
-  app.get("/api/tasks", (req, res) => {
-    const tasks = db.prepare(`
-      SELECT t.*, u.fullname as officer_name 
-      FROM tasks t 
-      JOIN users u ON t.officer_id = u.id 
-      ORDER BY t.created_at DESC
-    `).all();
-    res.json(tasks);
-  });
-
-  app.post("/api/tasks", (req, res) => {
-    const { officer_id, title, description, due_date } = req.body;
-    db.prepare(`
-      INSERT INTO tasks (officer_id, title, description, due_date) 
-      VALUES (?, ?, ?, ?)
-    `).run(officer_id, title, description, due_date);
-    
-    io.emit("notification", {
-      id: Date.now().toString(),
-      title: "Tugas Baru",
-      message: `Anda mendapatkan tugas baru: ${title}`,
-      type: "info",
-      created_at: new Date().toISOString(),
-      read: false,
-      target_user_id: officer_id
-    });
-
-    io.emit("data_updated", { type: "tasks", officer_id });
-    res.json({ success: true });
-  });
-
-  app.patch("/api/tasks/:id", (req, res) => {
-    const { status } = req.body;
-    db.prepare("UPDATE tasks SET status = ? WHERE id = ?").run(status, req.params.id);
-    
-    const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(req.params.id) as any;
-    io.emit("data_updated", { type: "tasks", officer_id: task.officer_id });
-    res.json({ success: true });
-  });
-
-  // Get all officers for task assignment
-  app.get("/api/officers", (req, res) => {
-    const officers = db.prepare("SELECT id, fullname, username FROM users WHERE role = 'petugas' OR role = 'admin'").all();
-    res.json(officers);
-  });
-
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    app.use(express.static("dist"));
-    app.get("*", (req, res) => res.sendFile(path.resolve("dist/index.html")));
+app.post("/api/register", async (req, res) => {
+  const { fullname, username, password, role = 'petani' } = req.body;
+  try {
+    const hashed = bcrypt.hashSync(password, 10);
+    await User.create({ fullname, username, password: hashed, role, is_approved: role === 'admin' ? 0 : 1 });
+    res.json({ success: true, message: "Pendaftaran berhasil" });
+  } catch (err) {
+    res.status(400).json({ error: "Username sudah digunakan" });
   }
+});
 
-  httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+app.get("/api/admin/pending-users", async (req, res) => {
+  const users = await User.find({ is_approved: 0 }).select("-password");
+  res.json(users);
+});
+
+app.post("/api/admin/approve-user/:id", async (req, res) => {
+  await User.findByIdAndUpdate(req.params.id, { is_approved: 1 });
+  res.json({ success: true });
+});
+
+app.get("/api/articles", async (req, res) => {
+  const articles = await Article.find().sort("-created_at");
+  res.json(articles);
+});
+
+app.patch("/api/profile/:id", async (req, res) => {
+  const updatedUser = await User.findByIdAndUpdate(req.params.id, req.body, { new: true }).select("-password");
+  res.json(updatedUser);
+});
+
+app.get("/api/reports", async (req, res) => {
+  const reports = await Report.find().populate("user_id", "fullname").sort("-created_at");
+  // Mapping agar sesuai dengan format frontend lama
+  const mappedReports = reports.map(r => ({
+    ...r.toObject(),
+    user_name: (r.user_id as any)?.fullname
+  }));
+  res.json(mappedReports);
+});
+
+app.post("/api/reports", upload.single("foto"), async (req: any, res) => {
+  // Cloudinary menyimpan URL gambar di req.file.path
+  const fotoUrl = req.file ? req.file.path : null; 
+  const data = { ...req.body, foto: fotoUrl };
+  
+  const report = await Report.create(data);
+  
+  if (req.body.status === 'Bahaya') {
+    io.emit("notification", { id: Date.now().toString(), title: "Radar Hama: BAHAYA!", message: `Laporan baru...` });
+  }
+  io.emit("data_updated", { type: "reports" });
+  res.json({ success: true, id: report._id });
+});
+
+app.patch("/api/reports/:id/verify", async (req, res) => {
+  await Report.findByIdAndUpdate(req.params.id, { is_verified: 1 });
+  io.emit("data_updated", { type: "reports" });
+  res.json({ success: true });
+});
+
+app.get("/api/products", async (req, res) => {
+  const products = await Product.find().populate("user_id", "fullname").sort("-created_at");
+  const mappedProducts = products.map(p => ({
+    ...p.toObject(),
+    seller_name: (p.user_id as any)?.fullname
+  }));
+  res.json(mappedProducts);
+});
+
+app.post("/api/products", upload.single("photo"), async (req: any, res) => {
+  const photoUrl = req.file ? req.file.path : null;
+  const data = { ...req.body, photo: photoUrl };
+  
+  await Product.create(data);
+  io.emit("data_updated", { type: "products" });
+  res.json({ success: true });
+});
+
+app.get("/api/farms/:userId", async (req, res) => {
+  const farms = await Farm.find({ user_id: req.params.userId });
+  res.json(farms);
+});
+
+app.post("/api/farms", async (req, res) => {
+  const harvest = new Date(req.body.planting_date);
+  harvest.setDate(harvest.getDate() + parseInt(req.body.duration));
+  await Farm.create({ ...req.body, estimated_harvest_date: harvest });
+  io.emit("data_updated", { type: "farms" });
+  res.json({ success: true });
+});
+
+app.get("/api/bantuan/:userId", async (req, res) => {
+  const proposals = await BantuanProposal.find({ user_id: req.params.userId });
+  res.json(proposals);
+});
+
+app.post("/api/bantuan", async (req, res) => {
+  await BantuanProposal.create(req.body);
+  io.emit("data_updated", { type: "bantuan" });
+  res.json({ success: true });
+});
+
+app.patch("/api/bantuan/:id", async (req, res) => {
+  const proposal = await BantuanProposal.findByIdAndUpdate(req.params.id, { status: req.body.status });
+  io.emit("data_updated", { type: "bantuan", user_id: proposal?.user_id });
+  res.json({ success: true });
+});
+
+app.post("/api/articles", upload.single("image"), async (req: any, res) => {
+  const imageUrl = req.file ? req.file.path : null;
+  const data = { ...req.body, image: imageUrl };
+  
+  await Article.create(data);
+  res.json({ success: true });
+});
+
+app.get("/api/tasks/:officerId", async (req, res) => {
+  const tasks = await Task.find({ officer_id: req.params.officerId }).sort("-created_at");
+  res.json(tasks);
+});
+
+app.get("/api/tasks", async (req, res) => {
+  const tasks = await Task.find().populate("officer_id", "fullname").sort("-created_at");
+  const mappedTasks = tasks.map(t => ({
+    ...t.toObject(),
+    officer_name: (t.officer_id as any)?.fullname
+  }));
+  res.json(mappedTasks);
+});
+
+app.post("/api/tasks", async (req, res) => {
+  await Task.create(req.body);
+  io.emit("data_updated", { type: "tasks" });
+  res.json({ success: true });
+});
+
+app.patch("/api/tasks/:id", async (req, res) => {
+  await Task.findByIdAndUpdate(req.params.id, { status: req.body.status });
+  io.emit("data_updated", { type: "tasks" });
+  res.json({ success: true });
+});
+
+app.get("/api/officers", async (req, res) => {
+  const officers = await User.find({ role: { $in: ['petugas', 'admin'] } }).select("-password");
+  res.json(officers);
+});
+
+// --- VITE & SERVER HANDLING ---
+if (process.env.NODE_ENV !== "production") {
+  // Hanya jalankan Vite dan listen server saat di local development
+  createViteServer({
+    server: { middlewareMode: true },
+    appType: "spa",
+  }).then(vite => {
+    app.use(vite.middlewares);
+    httpServer.listen(3000, "0.0.0.0", () => {
+      console.log(`🚀 Server running on http://localhost:3000`);
+    });
   });
+} else {
+  // Saat di Vercel, cukup serve file static jika ada
+  app.use(express.static("dist"));
+  app.get("*", (req, res) => res.sendFile(path.resolve("dist/index.html")));
 }
 
-startServer();
+// EKSPOR APP AGAR BISA DIBACA OLEH VERCEL SERVERLESS
+export default app;
