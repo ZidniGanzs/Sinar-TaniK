@@ -1,5 +1,5 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
+//import { createServer as createViteServer } from "vite";
 import { createServer as createHttpServer } from "http";
 import { Server } from "socket.io";
 import mongoose from "mongoose";
@@ -331,21 +331,12 @@ app.get("/api/officers", async (req, res) => {
 });
 
 // --- VITE & SERVER HANDLING ---
+// --- SERVER HANDLING LOKAL ---
+// Jalankan server di port 3000 HANYA jika berjalan di komputer lokal
 if (process.env.NODE_ENV !== "production") {
-  // Hanya jalankan Vite dan listen server saat di local development
-  createViteServer({
-    server: { middlewareMode: true },
-    appType: "spa",
-  }).then(vite => {
-    app.use(vite.middlewares);
-    httpServer.listen(3000, "0.0.0.0", () => {
-      console.log(`🚀 Server running on http://localhost:3000`);
-    });
+  httpServer.listen(3000, "0.0.0.0", () => {
+    console.log(`🚀 Server API berjalan di http://localhost:3000`);
   });
-} else {
-  // Saat di Vercel, cukup serve file static jika ada
-  app.use(express.static("dist"));
-  app.get("*", (req, res) => res.sendFile(path.resolve("dist/index.html")));
 }
 
 // EKSPOR APP AGAR BISA DIBACA OLEH VERCEL SERVERLESS
